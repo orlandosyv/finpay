@@ -91,6 +91,15 @@ export const routes: Routes = [
         title: 'Webhook deliveries | FinPay Console',
       },
       {
+        path: 'infrastructure',
+        loadComponent: () =>
+          import('./features/infrastructure/infrastructure-page').then(
+            (component) => component.InfrastructurePage,
+          ),
+        canActivate: [adminGuard],
+        title: 'Infrastructure lab | FinPay Console',
+      },
+      {
         path: '',
         pathMatch: 'full',
         redirectTo: 'overview',

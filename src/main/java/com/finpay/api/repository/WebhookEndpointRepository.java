@@ -12,4 +12,6 @@ public interface WebhookEndpointRepository extends JpaRepository<WebhookEndpoint
     List<WebhookEndpoint> findAllByMerchantIdAndActiveTrueOrderByIdAsc(Long merchantId);
 
     Optional<WebhookEndpoint> findByIdAndMerchantIdAndActiveTrue(Long id, Long merchantId);
+
+    long countByMerchantIdAndActiveTrue(Long merchantId);
 }

@@ -48,6 +48,38 @@ services:
       retries: 10
     restart: unless-stopped
 
+  kafka:
+    image: apache/kafka:4.3.1
+    hostname: kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:19092,PLAINTEXT_HOST://localhost:${FINPAY_KAFKA_PORT:-9094}
+      KAFKA_LISTENERS: CONTROLLER://:29093,PLAINTEXT://:19092,PLAINTEXT_HOST://:9094
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: 1
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw
+    ports:
+      - "${FINPAY_KAFKA_PORT:-9094}:9094"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:19092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+    restart: unless-stopped
+
   api:
     build:
       context: .
@@ -59,6 +91,8 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
     environment:
       FINPAY_DB_USERNAME: sa
       FINPAY_DB_PASSWORD: ${FINPAY_DB_PASSWORD:?Set FINPAY_DB_PASSWORD in a .env file}
@@ -68,6 +102,8 @@ services:
       FINPAY_WEBHOOK_ALLOW_PRIVATE_ADDRESSES: ${FINPAY_WEBHOOK_ALLOW_PRIVATE_ADDRESSES:-true}
       FINPAY_REDIS_HOST: redis
       FINPAY_REDIS_PORT: 6379
+      FINPAY_KAFKA_ENABLED: "true"
+      FINPAY_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
       SPRING_DATASOURCE_URL: jdbc:sqlserver://sqlserver:1433;databaseName=finpay_db;encrypt=true;trustServerCertificate=true
       SPRING_JPA_SHOW_SQL: "false"
     ports:
@@ -94,3 +130,4 @@ services:
 volumes:
   sqlserver-data:
   redis-data:
+  kafka-data:

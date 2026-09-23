@@ -22,6 +22,8 @@ The project focuses on API design, multi-tenant architecture, authentication and
 - Prevent duplicate payment creation with merchant-scoped idempotency keys
 - Register merchant webhook endpoints and deliver signed payment events
 - Persist webhook events with a transactional outbox and retry failed deliveries
+- Provision an Apache Kafka broker and versioned payment-events topic for the event-streaming phase
+- Inspect Kafka readiness, webhook configuration, and the event pipeline in an educational infrastructure lab
 - Approve or decline pending payments
 - Refund approved payments
 - Validate amounts and ISO 4217 currency codes: USD, PEN, EUR
@@ -30,7 +32,7 @@ The project focuses on API design, multi-tenant architecture, authentication and
 - Store creation and update timestamps in UTC
 - Manage the database schema with versioned Flyway migrations
 - Document and test endpoints through Swagger UI
-- Run integration tests against real SQL Server and Redis containers
+- Run integration tests against real SQL Server, Redis, and Kafka containers
 - Start the API, SQL Server, and Redis together with Docker Compose
 - Operate FinPay through a responsive Angular Merchant Console
 - Register and authenticate merchants from the browser
@@ -68,9 +70,10 @@ The project focuses on API design, multi-tenant architecture, authentication and
 
 - Microsoft SQL Server 2022
 - Redis 7.4
+- Apache Kafka 4.3.1 in KRaft mode
 - Docker and Docker Compose
 - JUnit, Mockito, MockMvc, and AssertJ
-- Testcontainers for SQL Server and Redis integration tests
+- Testcontainers for SQL Server, Redis, and Kafka integration tests
 - GitHub Actions for backend and frontend continuous integration
 
 ## Architecture Overview
@@ -86,9 +89,10 @@ flowchart LR
     SQL --> Outbox[Transactional outbox]
     Outbox --> Dispatcher[Webhook dispatcher]
     Dispatcher -->|Signed HTTP events| Merchant[Merchant webhook server]
+    Outbox -. Step 2 publisher .-> Kafka[(Kafka payment events)]
 ```
 
-Angular provides the user-facing workflow, but the API remains the authoritative security boundary. Every protected request is validated independently, and the authenticated JWT determines the current merchant and role. SQL Server stores business state and durable webhook records, while Redis manages refresh-token sessions and access-token revocation.
+Angular provides the user-facing workflow, but the API remains the authoritative security boundary. Every protected request is validated independently, and the authenticated JWT determines the current merchant and role. SQL Server stores business state and durable webhook records, while Redis manages refresh-token sessions and access-token revocation. Kafka and the `finpay.payment-events.v1` topic are provisioned in step 1; payment-event publication is intentionally deferred to step 2.
 
 ## Payment Lifecycle
 
@@ -121,6 +125,7 @@ Any transition outside this flow is rejected with `409 Conflict`.
 | `GET`    | `/api/merchant/webhook-events/summary`              | Get webhook processing health totals                       | `MERCHANT_ADMIN`     | `200 OK`         |
 | `GET`    | `/api/merchant/webhook-events/{eventId}`            | Inspect an event and its immutable payload                 | `MERCHANT_ADMIN`     | `200 OK`         |
 | `GET`    | `/api/merchant/webhook-events/{eventId}/deliveries` | Inspect the HTTP delivery history for an event             | `MERCHANT_ADMIN`     | `200 OK`         |
+| `GET`    | `/api/merchant/infrastructure`                      | Inspect Kafka, webhook, and pipeline readiness             | `MERCHANT_ADMIN`     | `200 OK`         |
 | `GET`    | `/api/payments`                                     | List merchant payments                                     | Either merchant role | `200 OK`         |
 | `GET`    | `/api/payments/{id}`                                | Find a merchant payment by ID                              | Either merchant role | `200 OK`         |
 | `POST`   | `/api/payments`                                     | Create a pending payment using an idempotency key          | Either merchant role | `201 Created`    |
@@ -130,12 +135,12 @@ Any transition outside this flow is rejected with `409 Conflict`.
 
 ## Running with Docker
 
-This is the recommended way to run the complete FinPay platform. Docker Compose starts SQL Server and Redis, creates the `finpay_db` database, applies the Flyway migrations, starts the Spring Boot API, builds Angular, and serves the Merchant Console through Nginx.
+This is the recommended way to run the complete FinPay platform. Docker Compose starts SQL Server, Redis, and a single-node Kafka broker, creates the `finpay_db` database, applies the Flyway migrations, creates the Kafka topic, starts the Spring Boot API, builds Angular, and serves the Merchant Console through Nginx.
 
 ### Requirements
 
 - Docker Desktop with the Docker engine running
-- Available ports `4200`, `8080`, `1434`, and `6379`, or different ports configured in `.env`
+- Available ports `4200`, `8080`, `1434`, `6379`, and `9094`, or different ports configured in `.env`
 
 ### Start the application
 
@@ -175,6 +180,7 @@ The services are available at:
 - API and Swagger: `http://localhost:8080`
 - SQL Server: host port `1434`
 - Redis: host port `6379`
+- Kafka: host port `9094`
 
 The frontend container uses a multi-stage build. Node compiles the Angular application, but only the generated static files and Nginx remain in the final image. Nginx serves Angular routes and proxies `/api` requests to the Spring Boot container through Docker's internal network.
 
@@ -188,7 +194,7 @@ Stop and remove the containers while preserving database data:
 docker compose down
 ```
 
-To also delete the SQL Server and Redis volumes, including all stored payments and active authentication sessions:
+To also delete the SQL Server, Redis, and Kafka volumes, including all stored payments, active authentication sessions, and Kafka topic data:
 
 ```powershell
 docker compose down -v
@@ -231,6 +237,7 @@ The main frontend routes are:
 | `/app/team`           | List users and assign roles during account creation | `MERCHANT_ADMIN`     |
 | `/app/webhooks`       | Register and disable webhook destinations           | `MERCHANT_ADMIN`     |
 | `/app/webhook-events` | Inspect event health and delivery history           | `MERCHANT_ADMIN`     |
+| `/app/infrastructure` | Compare Kafka and webhooks with live status hints   | `MERCHANT_ADMIN`     |
 
 The frontend stores the active token pair in `sessionStorage`, automatically adds the access token to protected API requests, and uses the rotating refresh token when an access token expires. Logging out clears the browser session and asks the API to revoke both credentials.
 
@@ -483,7 +490,7 @@ The test suite includes:
 - Flyway and SQL Server integration tests with Testcontainers
 - OpenAPI and Swagger endpoint checks
 
-Testcontainers creates isolated SQL Server and Redis instances for integration tests and removes them when the test run finishes. No permanent test database or Redis instance is required.
+Testcontainers creates isolated SQL Server, Redis, and Kafka instances for integration tests and removes them when the test run finishes. No permanent test database, Redis instance, or Kafka broker is required.
 
 ### Frontend tests
 
@@ -572,6 +579,7 @@ frontend
     |   |-- session/  Authenticated merchant overview
     |   |-- team/     Merchant users and role assignment
     |   |-- webhooks/ Endpoint configuration and delivery dashboard
+    |   |-- infrastructure/ Kafka and webhook learning dashboard
     |   `-- system/   Public API health check
     |-- layout/       Authenticated Merchant Console shell
     `-- shared/       Reusable styles, errors, and presentation components
@@ -605,6 +613,7 @@ frontend
 - **Automatic token renewal:** an HTTP interceptor refreshes expired access tokens and retries the original request without dropping business headers such as `Idempotency-Key`.
 - **One-time secret handling:** the Merchant Console displays a newly generated webhook signing secret only from its creation response and never expects it from later list operations.
 - **Operational visibility:** the webhook dashboard separates business events from individual HTTP attempts, making retries and destination failures traceable without direct database access.
+- **Honest infrastructure status:** the lab distinguishes a reachable Kafka broker and existing topic from an active event publisher, so readiness is not confused with message flow.
 
 ## Roadmap
 
@@ -612,7 +621,7 @@ The current version includes the backend foundation and a functional Angular Mer
 
 - Invitation-based onboarding and password setup for merchant users
 - Role changes, account disabling, and password-reset workflows
-- Kafka-based event streaming for higher throughput and multiple consumers
+- Kafka payment-event publishing and independently scalable consumers
 - Structured application metrics, tracing, and production profiles
 - Frontend end-to-end tests with Playwright or Cypress
 

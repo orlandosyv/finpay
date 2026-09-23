@@ -1,0 +1,136 @@
+<main>
+  <header>
+    <div>
+      <p class="eyebrow">Architecture observability</p>
+      <h1>Infrastructure lab</h1>
+      <p>
+        See where Kafka and webhooks fit, which pieces are live, and what changes when each tool is
+        unavailable.
+      </p>
+    </div>
+    <button type="button" (click)="refresh()" [disabled]="loading()">
+      {{ loading() ? 'Checking...' : 'Run live check' }}
+    </button>
+  </header>
+
+  @if (error()) {
+    <p class="notice" role="alert">{{ error() }}</p>
+  }
+  @if (loading() && !status()) {
+    <p role="status">Inspecting the event infrastructure...</p>
+  }
+
+  @if (status(); as infrastructure) {
+    <p class="checked-at">Last checked {{ infrastructure.checkedAt | date: 'medium' }}</p>
+
+    <section class="status-grid" aria-label="Live infrastructure status">
+      <article class="status-card">
+        <div class="card-heading">
+          <div>
+            <p class="eyebrow">Internal event streaming</p>
+            <h2>Apache Kafka</h2>
+          </div>
+          <span class="state" [attr.data-state]="infrastructure.kafka.status">{{
+            infrastructure.kafka.status
+          }}</span>
+        </div>
+        <dl>
+          <dt>Topic</dt>
+          <dd>
+            <code>{{ infrastructure.kafka.topic }}</code>
+          </dd>
+          <dt>Topic ready</dt>
+          <dd>{{ infrastructure.kafka.topicAvailable ? 'Yes' : 'No' }}</dd>
+          <dt>Partitions</dt>
+          <dd>{{ infrastructure.kafka.partitions }}</dd>
+          <dt>Payment publisher</dt>
+          <dd>{{ infrastructure.kafka.publishingEnabled ? 'Active' : 'Not active yet' }}</dd>
+        </dl>
+        <p class="hint"><strong>Hint:</strong> {{ infrastructure.kafka.hint }}</p>
+      </article>
+
+      <article class="status-card">
+        <div class="card-heading">
+          <div>
+            <p class="eyebrow">External integration</p>
+            <h2>Webhooks</h2>
+          </div>
+          <span class="state" [attr.data-state]="infrastructure.webhooks.status">{{
+            infrastructure.webhooks.status
+          }}</span>
+        </div>
+        <dl>
+          <dt>Active endpoints</dt>
+          <dd>{{ infrastructure.webhooks.activeEndpoints }}</dd>
+          <dt>Delivery mode</dt>
+          <dd>{{ infrastructure.webhooks.deliveryMode }}</dd>
+        </dl>
+        <p class="hint"><strong>Hint:</strong> {{ infrastructure.webhooks.hint }}</p>
+      </article>
+    </section>
+
+    <section aria-labelledby="pipeline-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Live architecture map</p>
+          <h2 id="pipeline-title">Payment event pipeline</h2>
+        </div>
+        <span class="legend">Status comes from the API</span>
+      </div>
+      <ol class="pipeline">
+        @for (stage of infrastructure.pipeline; track stage.order) {
+          <li>
+            <span class="step">0{{ stage.order }}</span>
+            <div>
+              <small>{{ stage.technology }}</small>
+              <h3>{{ stage.name }}</h3>
+              <p>{{ stage.hint }}</p>
+            </div>
+            <span class="state" [attr.data-state]="stage.state">{{ stage.state }}</span>
+          </li>
+        }
+      </ol>
+    </section>
+
+    <section aria-labelledby="contrast-title">
+      <p class="eyebrow">Why these tools exist</p>
+      <h2 id="contrast-title">With the tool vs. without it</h2>
+      <div class="contrast-grid">
+        <article>
+          <h3>Kafka</h3>
+          <div class="comparison">
+            <div>
+              <strong>With Kafka</strong>
+              <p>Multiple internal consumers can process the same durable event independently.</p>
+            </div>
+            <div>
+              <strong>Without Kafka</strong>
+              <p>New internal tasks are coupled directly to the payment request or database.</p>
+            </div>
+          </div>
+        </article>
+        <article>
+          <h3>Webhooks</h3>
+          <div class="comparison">
+            <div>
+              <strong>With webhooks</strong>
+              <p>The merchant receives signed notifications automatically, including retries.</p>
+            </div>
+            <div>
+              <strong>Without webhooks</strong>
+              <p>The merchant must poll FinPay repeatedly to discover payment changes.</p>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <aside class="learning-note">
+      <strong>Step 1 checkpoint</strong>
+      <p>
+        A connected Kafka broker does not mean that events are flowing. This step only provisions
+        Kafka and its topic. Step 2 will publish payment events and make that change visible here.
+      </p>
+    </aside>
+  }
+</main>

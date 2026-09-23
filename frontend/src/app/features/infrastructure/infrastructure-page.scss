@@ -1,0 +1,257 @@
+:host {
+  display: block;
+}
+
+main {
+  display: grid;
+  gap: 36px;
+}
+header,
+.card-heading,
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+header {
+  align-items: flex-start;
+}
+h1 {
+  margin: 8px 0 12px;
+  font-size: clamp(2.2rem, 5vw, 3.4rem);
+  letter-spacing: -0.05em;
+}
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+header p {
+  max-width: 720px;
+  color: #525252;
+  line-height: 1.6;
+}
+button {
+  padding: 12px 18px;
+  color: #fff;
+  background: #171717;
+  border: 1px solid #171717;
+  border-radius: 6px;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+.eyebrow {
+  margin-bottom: 6px;
+  color: #737373;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.checked-at,
+.legend {
+  color: #737373;
+  font-size: 0.82rem;
+}
+.status-grid,
+.contrast-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.status-card,
+.contrast-grid > article,
+.learning-note {
+  padding: 24px;
+  background: #fff;
+  border: 1px solid #d4d4d4;
+  border-radius: 12px;
+}
+.status-card h2 {
+  margin: 0;
+}
+.state {
+  display: inline-flex;
+  width: fit-content;
+  padding: 6px 9px;
+  color: #404040;
+  background: #e5e5e5;
+  border: 1px solid #d4d4d4;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+.state[data-state='CONNECTED'],
+.state[data-state='ACTIVE'] {
+  color: #fff;
+  background: #171717;
+  border-color: #171717;
+}
+.state[data-state='DISCONNECTED'],
+.state[data-state='DISABLED'],
+.state[data-state='WAITING_FOR_ENDPOINT'] {
+  border-style: dashed;
+}
+.state[data-state='READY_NOT_PUBLISHING'] {
+  background: #fff;
+  border: 2px solid #171717;
+}
+dl {
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) 2fr;
+  gap: 12px;
+  margin: 24px 0;
+}
+dt {
+  color: #737373;
+}
+dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.hint {
+  margin-bottom: 0;
+  padding: 14px;
+  background: #f5f5f5;
+  border-left: 4px solid #171717;
+  line-height: 1.5;
+}
+.pipeline {
+  display: grid;
+  gap: 0;
+  padding: 0;
+  list-style: none;
+}
+.pipeline li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 22px 0;
+  border-bottom: 1px solid #d4d4d4;
+}
+.pipeline li::before {
+  content: '';
+  position: absolute;
+  left: 25px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #a3a3a3;
+  z-index: 0;
+}
+.pipeline li:first-child::before {
+  top: 50%;
+}
+.pipeline li:last-child::before {
+  bottom: 50%;
+}
+.step {
+  position: relative;
+  z-index: 1;
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: #171717;
+  border-radius: 50%;
+  font-weight: 800;
+}
+.pipeline h3 {
+  margin: 3px 0 7px;
+}
+.pipeline p {
+  margin: 0;
+  color: #525252;
+  line-height: 1.5;
+}
+.pipeline small {
+  color: #737373;
+}
+.comparison {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  border: 1px solid #d4d4d4;
+}
+.comparison div {
+  padding: 18px;
+}
+.comparison div + div {
+  background: #f5f5f5;
+  border-left: 1px solid #d4d4d4;
+}
+.comparison p {
+  margin: 8px 0 0;
+  color: #525252;
+  line-height: 1.5;
+}
+.learning-note {
+  background: #171717;
+  color: #fff;
+}
+.learning-note p {
+  max-width: 780px;
+  margin: 8px 0 0;
+  color: #d4d4d4;
+  line-height: 1.6;
+}
+.notice {
+  padding: 16px;
+  background: #e5e5e5;
+  border-left: 4px solid #171717;
+}
+
+@media (max-width: 850px) {
+  .status-grid,
+  .contrast-grid {
+    grid-template-columns: 1fr;
+  }
+  header,
+  .section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .pipeline li {
+    grid-template-columns: 45px minmax(0, 1fr);
+  }
+  .pipeline li > .state {
+    grid-column: 2;
+  }
+  .step {
+    width: 45px;
+    height: 45px;
+  }
+  .pipeline li::before {
+    left: 22px;
+  }
+}
+
+@media (max-width: 520px) {
+  .card-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .comparison {
+    grid-template-columns: 1fr;
+  }
+  .comparison div + div {
+    border-left: 0;
+    border-top: 1px solid #d4d4d4;
+  }
+  dl {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  dd {
+    margin-bottom: 10px;
+  }
+}
