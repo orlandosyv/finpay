@@ -22,8 +22,9 @@ The project focuses on API design, multi-tenant architecture, authentication and
 - Prevent duplicate payment creation with merchant-scoped idempotency keys
 - Register merchant webhook endpoints and deliver signed payment events
 - Persist webhook events with a transactional outbox and retry failed deliveries
-- Provision an Apache Kafka broker and versioned payment-events topic for the event-streaming phase
-- Inspect Kafka readiness, webhook configuration, and the event pipeline in an educational infrastructure lab
+- Publish payment lifecycle events to a versioned Apache Kafka topic from the transactional outbox
+- Persist Kafka attempts, retries, partition, offset, and failures independently from webhook delivery
+- Explore live topology, publication evidence, outage behavior, and architecture concepts in an educational Infrastructure Lab
 - Approve or decline pending payments
 - Refund approved payments
 - Validate amounts and ISO 4217 currency codes: USD, PEN, EUR
@@ -33,7 +34,7 @@ The project focuses on API design, multi-tenant architecture, authentication and
 - Manage the database schema with versioned Flyway migrations
 - Document and test endpoints through Swagger UI
 - Run integration tests against real SQL Server, Redis, and Kafka containers
-- Start the API, SQL Server, and Redis together with Docker Compose
+- Start Angular, the API, SQL Server, Redis, and Kafka together with Docker Compose
 - Operate FinPay through a responsive Angular Merchant Console
 - Register and authenticate merchants from the browser
 - Manage payments, merchant users, roles, and webhook destinations visually
@@ -89,10 +90,12 @@ flowchart LR
     SQL --> Outbox[Transactional outbox]
     Outbox --> Dispatcher[Webhook dispatcher]
     Dispatcher -->|Signed HTTP events| Merchant[Merchant webhook server]
-    Outbox -. Step 2 publisher .-> Kafka[(Kafka payment events)]
+    Outbox --> Publisher[Kafka publisher]
+    Publisher -->|Key: payment ID| Kafka[(finpay.payment-events.v1)]
+    Kafka -. Step 3 .-> Consumers[Independent internal consumers]
 ```
 
-Angular provides the user-facing workflow, but the API remains the authoritative security boundary. Every protected request is validated independently, and the authenticated JWT determines the current merchant and role. SQL Server stores business state and durable webhook records, while Redis manages refresh-token sessions and access-token revocation. Kafka and the `finpay.payment-events.v1` topic are provisioned in step 1; payment-event publication is intentionally deferred to step 2.
+Angular provides the user-facing workflow, but the API remains the authoritative security boundary. Every protected request is validated independently, and the authenticated JWT determines the current merchant and role. SQL Server stores business state and the durable outbox, while Redis manages refresh-token sessions and access-token revocation. Independent workers deliver each outbox event to merchant webhooks and to the `finpay.payment-events.v1` Kafka topic.
 
 ## Payment Lifecycle
 
@@ -237,7 +240,7 @@ The main frontend routes are:
 | `/app/team`           | List users and assign roles during account creation | `MERCHANT_ADMIN`     |
 | `/app/webhooks`       | Register and disable webhook destinations           | `MERCHANT_ADMIN`     |
 | `/app/webhook-events` | Inspect event health and delivery history           | `MERCHANT_ADMIN`     |
-| `/app/infrastructure` | Compare Kafka and webhooks with live status hints   | `MERCHANT_ADMIN`     |
+| `/app/infrastructure` | Learn and inspect live Kafka and webhook event flow | `MERCHANT_ADMIN`     |
 
 The frontend stores the active token pair in `sessionStorage`, automatically adds the access token to protected API requests, and uses the rotating refresh token when an access token expires. Logging out clears the browser session and asks the API to revoke both credentials.
 
@@ -347,6 +350,35 @@ X-FinPay-Signature: v1=<hmac-sha256-hex>
 The signature is `HMAC-SHA256(signingSecret, timestamp + "." + rawRequestBody)`. Receivers should compute the signature over the exact raw JSON body, compare it in constant time, reject stale timestamps, and deduplicate deliveries by `X-FinPay-Event-Id`.
 
 Payment changes and outbox events are committed in the same SQL transaction. A background dispatcher sends pending events every five seconds. Failed deliveries use backoff intervals of 1 minute, 5 minutes, 30 minutes, and 2 hours, then move to `FAILED` after the fifth attempt. Delivery is **at least once**, so receivers must be idempotent.
+
+## Kafka Event Publication
+
+The same durable outbox event used for webhooks is also registered in `kafka_publications`. A background publisher reads pending rows, sends the immutable JSON payload to `finpay.payment-events.v1`, and records the broker-assigned partition and offset. Webhook and Kafka state are deliberately separate: an unavailable merchant server does not block Kafka, and an unavailable Kafka broker does not block webhook delivery or payment creation.
+
+Messages use the payment ID as their key so lifecycle events for one payment remain ordered within the same partition. The event ID, type, and merchant ID are included as Kafka headers. Publication is **at least once**: if the broker accepts a message but the database status update fails, the event can be sent again. Future consumers must therefore deduplicate by `finpay-event-id`.
+
+The Infrastructure Lab at `http://localhost:4200/app/infrastructure` exposes tenant-scoped totals, pending retries, permanent failures, recent event types, attempts, partitions, offsets, and the live broker/topic status. It also explains the difference between the transactional outbox, Kafka, and webhooks.
+
+To inspect the raw stream while Docker Compose is running:
+
+```powershell
+docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh `
+  --bootstrap-server localhost:19092 `
+  --topic finpay.payment-events.v1 `
+  --from-beginning `
+  --property print.key=true `
+  --property print.headers=true `
+  --timeout-ms 10000
+```
+
+For the outage experiment, stop only Kafka, create or update a payment, and inspect the pending event in the lab:
+
+```powershell
+docker compose stop kafka
+docker compose start kafka
+```
+
+After Kafka restarts, the publisher retries the durable event and the lab changes it from `PENDING` to `PUBLISHED` with a partition and offset.
 
 Local development permits HTTP and private addresses so a receiver can run on the same machine. Production should set `FINPAY_WEBHOOK_REQUIRE_HTTPS=true`, `FINPAY_WEBHOOK_ALLOW_PRIVATE_ADDRESSES=false`, and use a dedicated `FINPAY_WEBHOOK_ENCRYPTION_KEY`.
 
@@ -487,6 +519,8 @@ The test suite includes:
 - Idempotent payment creation, conflict, tenant isolation, and concurrent-retry tests
 - Signed webhook delivery, encrypted secrets, tenant isolation, RBAC, and retry tests
 - Webhook dashboard summary, filtering, pagination, detail, delivery history, and tenant-isolation tests
+- Kafka producer key, headers, payload, persisted status, partition, and offset tests
+- Real outbox-to-Kafka publication tests with Testcontainers
 - Flyway and SQL Server integration tests with Testcontainers
 - OpenAPI and Swagger endpoint checks
 
@@ -510,6 +544,7 @@ The frontend tests cover:
 - Merchant user listing, role assignment, and duplicate-email errors
 - Webhook endpoint creation, one-time secret handling, validation, and disabling
 - Dashboard summaries, event filters, date validation, immutable payloads, and delivery attempts
+- Infrastructure Lab topology, Kafka metrics, and concrete publication evidence
 
 Create a production frontend bundle with:
 
@@ -603,7 +638,10 @@ frontend
 - **Server-controlled membership:** merchant administration requests never accept a `merchantId`; users are always created inside the authenticated administrator's merchant.
 - **Merchant-scoped idempotency:** payment retries use a unique `(merchant_id, idempotency_key)` database constraint. A canonical request hash detects unsafe key reuse, while a transaction commits the payment and its response snapshot atomically.
 - **Concurrency safety:** competing requests cannot both create a payment. The database chooses one winner and later requests replay the stored creation response.
-- **Transactional outbox:** every payment change and its webhook event commit together in SQL Server, avoiding lost notifications if the HTTP destination is temporarily unavailable.
+- **Transactional outbox:** every payment change and its event commit together in SQL Server, avoiding the unsafe dual write of separately saving a payment and immediately calling Kafka or HTTP.
+- **Independent delivery state:** Kafka publication and webhook delivery track their own attempts and outcomes, so either channel can fail and recover without blocking the other.
+- **Kafka ordering key:** the payment ID is the record key, keeping lifecycle events for one payment in the same partition while allowing different payments to scale across partitions.
+- **Kafka delivery semantics:** producer idempotence protects broker-level retries, while event IDs let consumers handle the remaining at-least-once duplicate window across SQL Server and Kafka.
 - **Signed delivery:** webhook secrets are encrypted at rest and used to authenticate payloads with HMAC-SHA256.
 - **At-least-once retries:** failed deliveries are persisted and retried with backoff; consumers deduplicate by event ID.
 - **Multi-stage Docker build:** Maven compiles the application in a build image, while the final image contains only the Java runtime and packaged application.
@@ -613,7 +651,7 @@ frontend
 - **Automatic token renewal:** an HTTP interceptor refreshes expired access tokens and retries the original request without dropping business headers such as `Idempotency-Key`.
 - **One-time secret handling:** the Merchant Console displays a newly generated webhook signing secret only from its creation response and never expects it from later list operations.
 - **Operational visibility:** the webhook dashboard separates business events from individual HTTP attempts, making retries and destination failures traceable without direct database access.
-- **Honest infrastructure status:** the lab distinguishes a reachable Kafka broker and existing topic from an active event publisher, so readiness is not confused with message flow.
+- **Evidence-based infrastructure status:** the lab distinguishes broker reachability from actual publication and shows persisted attempts, failures, partitions, and offsets.
 
 ## Roadmap
 
@@ -621,7 +659,7 @@ The current version includes the backend foundation and a functional Angular Mer
 
 - Invitation-based onboarding and password setup for merchant users
 - Role changes, account disabling, and password-reset workflows
-- Kafka payment-event publishing and independently scalable consumers
+- Independently scalable Kafka consumers for auditing, analytics, or fraud signals
 - Structured application metrics, tracing, and production profiles
 - Frontend end-to-end tests with Playwright or Cypress
 

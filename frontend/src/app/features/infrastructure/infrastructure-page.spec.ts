@@ -16,7 +16,7 @@ describe('InfrastructurePage', () => {
 
   afterEach(() => http.verify());
 
-  it('shows live Kafka and webhook status without claiming that publishing is active', () => {
+  it('shows live Kafka publication evidence and educational context', () => {
     const fixture = TestBed.createComponent(InfrastructurePage);
     fixture.detectChanges();
 
@@ -27,9 +27,28 @@ describe('InfrastructurePage', () => {
         topic: 'finpay.payment-events.v1',
         topicAvailable: true,
         partitions: 3,
-        publishingEnabled: false,
+        publishingEnabled: true,
         clusterId: 'finpay-cluster',
-        hint: 'The broker and topic are ready. No payment events are published until step 2.',
+        totalEvents: 3,
+        pendingEvents: 1,
+        publishedEvents: 2,
+        failedEvents: 0,
+        recentEvents: [
+          {
+            eventId: 'event-1',
+            paymentId: 91,
+            eventType: 'payment.created',
+            status: 'PUBLISHED',
+            attempts: 1,
+            partition: 2,
+            offset: 14,
+            createdAt: '2026-09-22T20:00:00Z',
+            publishedAt: '2026-09-22T20:00:01Z',
+            nextAttemptAt: null,
+            lastError: null,
+          },
+        ],
+        hint: 'The publisher is active.',
       },
       webhooks: {
         status: 'ACTIVE',
@@ -49,8 +68,8 @@ describe('InfrastructurePage', () => {
           order: 4,
           name: 'Internal event stream',
           technology: 'Apache Kafka',
-          state: 'READY_NOT_PUBLISHING',
-          hint: 'Publishing starts in step 2.',
+          state: 'ACTIVE',
+          hint: 'Events are published.',
         },
       ],
     });
@@ -59,7 +78,10 @@ describe('InfrastructurePage', () => {
     const text = fixture.nativeElement.textContent;
     expect(text).toContain('CONNECTED');
     expect(text).toContain('finpay.payment-events.v1');
-    expect(text).toContain('Not active yet');
+    expect(text).toContain('Active');
+    expect(text).toContain('payment.created');
+    expect(text).toContain('P2 · O14');
+    expect(text).toContain('Transactional outbox');
     expect(text).toContain('With Kafka');
     expect(text).toContain('Without webhooks');
   });

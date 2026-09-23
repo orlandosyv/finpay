@@ -103,6 +103,7 @@ services:
       FINPAY_REDIS_HOST: redis
       FINPAY_REDIS_PORT: 6379
       FINPAY_KAFKA_ENABLED: "true"
+      FINPAY_KAFKA_PUBLISHER_ENABLED: "true"
       FINPAY_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
       SPRING_DATASOURCE_URL: jdbc:sqlserver://sqlserver:1433;databaseName=finpay_db;encrypt=true;trustServerCertificate=true
       SPRING_JPA_SHOW_SQL: "false"

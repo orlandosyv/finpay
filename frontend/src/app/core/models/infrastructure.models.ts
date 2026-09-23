@@ -5,7 +5,26 @@ export interface KafkaInfrastructureStatus {
   partitions: number;
   publishingEnabled: boolean;
   clusterId: string | null;
+  totalEvents: number;
+  pendingEvents: number;
+  publishedEvents: number;
+  failedEvents: number;
+  recentEvents: KafkaEventStatus[];
   hint: string;
+}
+
+export interface KafkaEventStatus {
+  eventId: string;
+  paymentId: number;
+  eventType: string;
+  status: 'PENDING' | 'PUBLISHED' | 'FAILED';
+  attempts: number;
+  partition: number | null;
+  offset: number | null;
+  createdAt: string;
+  publishedAt: string | null;
+  nextAttemptAt: string | null;
+  lastError: string | null;
 }
 
 export interface WebhookInfrastructureStatus {

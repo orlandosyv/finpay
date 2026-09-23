@@ -6,10 +6,14 @@ import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.finpay.api.model.OutboxEvent;
+import com.finpay.api.model.KafkaPublication;
 import com.finpay.api.model.Payment;
 import com.finpay.api.model.WebhookEventType;
+import com.finpay.api.repository.KafkaPublicationRepository;
 import com.finpay.api.repository.OutboxEventRepository;
 
 import tools.jackson.core.JacksonException;
@@ -19,25 +23,33 @@ import tools.jackson.databind.ObjectMapper;
 public class PaymentEventService {
 
     private final OutboxEventRepository outboxEventRepository;
+    private final KafkaPublicationRepository kafkaPublicationRepository;
     private final ObjectMapper objectMapper;
 
     public PaymentEventService(
             OutboxEventRepository outboxEventRepository,
+            KafkaPublicationRepository kafkaPublicationRepository,
             ObjectMapper objectMapper) {
         this.outboxEventRepository = outboxEventRepository;
+        this.kafkaPublicationRepository = kafkaPublicationRepository;
         this.objectMapper = objectMapper;
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
     public void record(Payment payment, WebhookEventType eventType) {
         UUID eventId = UUID.randomUUID();
         Instant occurredAt = Instant.now();
         String payload = serializePayload(eventId, occurredAt, payment, eventType);
-        outboxEventRepository.save(new OutboxEvent(
+        OutboxEvent outboxEvent = outboxEventRepository.save(new OutboxEvent(
                 eventId,
                 payment.getMerchant(),
                 payment.getId(),
                 eventType,
                 payload,
+                occurredAt));
+        kafkaPublicationRepository.save(new KafkaPublication(
+                outboxEvent,
+                payment.getMerchant(),
                 occurredAt));
     }
 

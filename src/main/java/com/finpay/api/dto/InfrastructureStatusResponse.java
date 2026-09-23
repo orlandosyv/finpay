@@ -16,7 +16,26 @@ public record InfrastructureStatusResponse(
             int partitions,
             boolean publishingEnabled,
             String clusterId,
+            long totalEvents,
+            long pendingEvents,
+            long publishedEvents,
+            long failedEvents,
+            List<KafkaEventStatus> recentEvents,
             String hint) {
+    }
+
+    public record KafkaEventStatus(
+            String eventId,
+            Long paymentId,
+            String eventType,
+            String status,
+            int attempts,
+            Integer partition,
+            Long offset,
+            Instant createdAt,
+            Instant publishedAt,
+            Instant nextAttemptAt,
+            String lastError) {
     }
 
     public record WebhookStatus(

@@ -1,11 +1,11 @@
 <main>
   <header>
     <div>
-      <p class="eyebrow">Architecture observability</p>
+      <p class="eyebrow">Step 2 · Event publication</p>
       <h1>Infrastructure lab</h1>
       <p>
-        See where Kafka and webhooks fit, which pieces are live, and what changes when each tool is
-        unavailable.
+        Follow one payment event from SQL Server to two independent destinations: Kafka for internal
+        consumers and webhooks for external merchants.
       </p>
     </div>
     <button type="button" (click)="refresh()" [disabled]="loading()">
@@ -22,6 +22,37 @@
 
   @if (status(); as infrastructure) {
     <p class="checked-at">Last checked {{ infrastructure.checkedAt | date: 'medium' }}</p>
+
+    <section class="lesson" aria-labelledby="lesson-title">
+      <div>
+        <p class="eyebrow">The idea in one minute</p>
+        <h2 id="lesson-title">One durable event, two delivery channels</h2>
+        <p>
+          The API first commits the payment and its outbox event in one SQL transaction. Background
+          workers later deliver that same event through Kafka and webhooks. A temporary outage does
+          not erase the event.
+        </p>
+      </div>
+      <div class="topology" aria-label="Event topology">
+        <span>Payment API</span><b>→</b><span>SQL + Outbox</span><b>↗</b><span>Kafka</span> <i></i
+        ><i></i><i></i><b>↘</b><span>Webhooks</span>
+      </div>
+    </section>
+
+    <section class="metrics" aria-label="Kafka publication metrics">
+      <article>
+        <small>Total events</small><strong>{{ infrastructure.kafka.totalEvents }}</strong>
+      </article>
+      <article>
+        <small>Published</small><strong>{{ infrastructure.kafka.publishedEvents }}</strong>
+      </article>
+      <article>
+        <small>Pending / retrying</small><strong>{{ infrastructure.kafka.pendingEvents }}</strong>
+      </article>
+      <article>
+        <small>Failed</small><strong>{{ infrastructure.kafka.failedEvents }}</strong>
+      </article>
+    </section>
 
     <section class="status-grid" aria-label="Live infrastructure status">
       <article class="status-card">
@@ -45,6 +76,10 @@
           <dd>{{ infrastructure.kafka.partitions }}</dd>
           <dt>Payment publisher</dt>
           <dd>{{ infrastructure.kafka.publishingEnabled ? 'Active' : 'Not active yet' }}</dd>
+          <dt>Message key</dt>
+          <dd>Payment ID</dd>
+          <dt>Delivery guarantee</dt>
+          <dd>At least once</dd>
         </dl>
         <p class="hint"><strong>Hint:</strong> {{ infrastructure.kafka.hint }}</p>
       </article>
@@ -67,6 +102,67 @@
         </dl>
         <p class="hint"><strong>Hint:</strong> {{ infrastructure.webhooks.hint }}</p>
       </article>
+    </section>
+
+    <section aria-labelledby="events-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Evidence, not only status</p>
+          <h2 id="events-title">Recent Kafka publications</h2>
+        </div>
+        <span class="legend">Partition and offset are assigned by Kafka</span>
+      </div>
+      @if (infrastructure.kafka.recentEvents.length) {
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Event</th>
+                <th>Payment</th>
+                <th>Status</th>
+                <th>Attempts</th>
+                <th>Kafka position</th>
+                <th>Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (event of infrastructure.kafka.recentEvents; track event.eventId) {
+                <tr>
+                  <td>
+                    <strong>{{ event.eventType }}</strong
+                    ><small>{{ event.eventId }}</small>
+                  </td>
+                  <td>#{{ event.paymentId }}</td>
+                  <td>
+                    <span class="state" [attr.data-state]="event.status">{{ event.status }}</span>
+                  </td>
+                  <td>{{ event.attempts }}</td>
+                  <td>
+                    @if (event.partition !== null) {
+                      P{{ event.partition }} · O{{ event.offset }}
+                    } @else {
+                      Waiting
+                    }
+                  </td>
+                  <td>
+                    {{
+                      event.publishedAt || event.nextAttemptAt || event.createdAt
+                        | date: 'mediumTime'
+                    }}
+                    @if (event.lastError) {
+                      <small class="event-error">{{ event.lastError }}</small>
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      } @else {
+        <p class="empty-state">
+          Create or change a payment to generate the first observable Kafka event.
+        </p>
+      }
     </section>
 
     <section aria-labelledby="pipeline-title">
@@ -125,11 +221,43 @@
       </div>
     </section>
 
+    <section aria-labelledby="concepts-title">
+      <p class="eyebrow">Interview-ready concepts</p>
+      <h2 id="concepts-title">What each pattern solves</h2>
+      <div class="concept-grid">
+        <article>
+          <strong>Transactional outbox</strong>
+          <p>
+            Prevents a payment from being committed without first leaving a durable event to
+            publish.
+          </p>
+        </article>
+        <article>
+          <strong>Kafka</strong>
+          <p>
+            Decouples internal consumers so analytics, auditing, or fraud detection can evolve
+            independently.
+          </p>
+        </article>
+        <article>
+          <strong>Webhooks</strong>
+          <p>
+            Push signed HTTP notifications across the system boundary to merchant-owned servers.
+          </p>
+        </article>
+        <article>
+          <strong>At-least-once</strong>
+          <p>Prioritizes not losing events; consumers must deduplicate with the event ID.</p>
+        </article>
+      </div>
+    </section>
+
     <aside class="learning-note">
-      <strong>Step 1 checkpoint</strong>
+      <strong>Step 2 is active</strong>
       <p>
-        A connected Kafka broker does not mean that events are flowing. This step only provisions
-        Kafka and its topic. Step 2 will publish payment events and make that change visible here.
+        “Connected” proves only that the broker is reachable. A PUBLISHED row with a partition and
+        offset proves that a concrete payment event was accepted by Kafka. Stop Kafka, create a
+        payment, and restart it to see the durable outbox and retry mechanism in action.
       </p>
     </aside>
   }

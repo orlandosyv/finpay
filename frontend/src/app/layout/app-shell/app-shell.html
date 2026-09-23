@@ -22,24 +22,26 @@
         <span aria-hidden="true">02</span>
         Payments
       </a>
+      @if (isAdmin()) {
+        <a routerLink="/app/infrastructure" routerLinkActive="active">
+          <span aria-hidden="true">03</span>
+          Infrastructure lab
+        </a>
+      }
 
       @if (isAdmin()) {
         <p class="nav-label admin-label">Administration</p>
         <a routerLink="/app/team" routerLinkActive="active">
-          <span aria-hidden="true">03</span>
+          <span aria-hidden="true">04</span>
           Team
         </a>
         <a routerLink="/app/webhooks" routerLinkActive="active">
-          <span aria-hidden="true">04</span>
+          <span aria-hidden="true">05</span>
           Webhook endpoints
         </a>
         <a routerLink="/app/webhook-events" routerLinkActive="active">
-          <span aria-hidden="true">05</span>
-          Deliveries
-        </a>
-        <a routerLink="/app/infrastructure" routerLinkActive="active">
           <span aria-hidden="true">06</span>
-          Infrastructure lab
+          Deliveries
         </a>
       }
     </nav>
