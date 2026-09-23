@@ -17,8 +17,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-test:
-    name: Build and test
+  backend-build-and-test:
+    name: Backend build and test
     runs-on: ubuntu-24.04
     timeout-minutes: 30
 
@@ -38,3 +38,34 @@ jobs:
 
       - name: Build and run tests
         run: ./mvnw --batch-mode --no-transfer-progress verify
+
+  frontend-build-and-test:
+    name: Frontend build and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test -- --no-watch --no-progress
+
+      - name: Build production application
+        run: npm run build
+
+      - name: Build frontend container
+        run: docker build --tag finpay-frontend:ci .

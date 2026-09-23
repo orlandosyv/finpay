@@ -71,7 +71,7 @@ The project focuses on API design, multi-tenant architecture, authentication and
 - Docker and Docker Compose
 - JUnit, Mockito, MockMvc, and AssertJ
 - Testcontainers for SQL Server and Redis integration tests
-- GitHub Actions for backend continuous integration
+- GitHub Actions for backend and frontend continuous integration
 
 ## Architecture Overview
 
@@ -128,14 +128,14 @@ Any transition outside this flow is rejected with `409 Conflict`.
 | `PATCH`  | `/api/payments/{id}/decline`                        | Decline a pending payment                                  | `MERCHANT_ADMIN`     | `200 OK`         |
 | `PATCH`  | `/api/payments/{id}/refund`                         | Refund an approved payment                                 | `MERCHANT_ADMIN`     | `200 OK`         |
 
-## Running the Backend with Docker
+## Running with Docker
 
-This is the recommended way to run the FinPay API and its dependencies because it requires only Docker Desktop. Docker Compose starts SQL Server and Redis, creates the `finpay_db` database, applies the Flyway migrations, and then starts the API. The Angular development server is started separately.
+This is the recommended way to run the complete FinPay platform. Docker Compose starts SQL Server and Redis, creates the `finpay_db` database, applies the Flyway migrations, starts the Spring Boot API, builds Angular, and serves the Merchant Console through Nginx.
 
 ### Requirements
 
 - Docker Desktop with the Docker engine running
-- Available ports `8080`, `1434`, and `6379`, or different ports configured in `.env`
+- Available ports `4200`, `8080`, `1434`, and `6379`, or different ports configured in `.env`
 
 ### Start the application
 
@@ -169,7 +169,14 @@ Check their status:
 docker compose ps
 ```
 
-The API is available at `http://localhost:8080`, SQL Server is exposed on host port `1434`, and Redis is exposed on host port `6379`.
+The services are available at:
+
+- Merchant Console: `http://localhost:4200`
+- API and Swagger: `http://localhost:8080`
+- SQL Server: host port `1434`
+- Redis: host port `6379`
+
+The frontend container uses a multi-stage build. Node compiles the Angular application, but only the generated static files and Nginx remain in the final image. Nginx serves Angular routes and proxies `/api` requests to the Spring Boot container through Docker's internal network.
 
 The `sqlserver-init` container is a one-time initialization service. Seeing it with an `Exited (0)` status is expected and means that database creation completed successfully.
 
@@ -187,9 +194,9 @@ To also delete the SQL Server and Redis volumes, including all stored payments a
 docker compose down -v
 ```
 
-## Running the Angular Merchant Console
+## Running the Angular Merchant Console for Development
 
-The frontend lives in the `frontend` directory. During local development, Angular runs on port `4200` and proxies every `/api` request to the Spring Boot application on `http://localhost:8080`.
+Docker Compose already serves the production Angular build on port `4200`. Use the following workflow only when developing the frontend and you need live reload. Angular runs on port `4200` and proxies every `/api` request to the Spring Boot application on `http://localhost:8080`.
 
 ### Requirements
 
@@ -505,6 +512,8 @@ npm run build
 
 The optimized output is written to `frontend/dist/frontend`.
 
+GitHub Actions runs the backend and frontend pipelines as independent jobs. The frontend job restores the npm cache, installs dependencies with `npm ci`, executes the unit tests, creates the production bundle, and builds the final Nginx container image.
+
 ## Running without Docker Compose
 
 To run the API directly from PowerShell, first create a local SQL Server database named `finpay_db`, start Redis on port `6379`, and provide the database credentials:
@@ -548,20 +557,24 @@ src/test/java/com/finpay/api
 |-- service/      Mockito unit tests
 `-- ...           SQL Server and end-to-end integration tests
 
-frontend/src/app
-|-- core/
-|   |-- api/      Typed REST API services
-|   |-- auth/     Session state, JWT interceptors, and route guards
-|   `-- models/   TypeScript request and response contracts
-|-- features/
-|   |-- auth/     Login and merchant registration
-|   |-- payments/ Payment list, creation, detail, and lifecycle actions
-|   |-- session/  Authenticated merchant overview
-|   |-- team/     Merchant users and role assignment
-|   |-- webhooks/ Endpoint configuration and delivery dashboard
-|   `-- system/   Public API health check
-|-- layout/       Authenticated Merchant Console shell
-`-- shared/       Reusable styles, errors, and presentation components
+frontend
+|-- Dockerfile       Multi-stage Angular and Nginx image
+|-- nginx.conf       SPA routing and internal API reverse proxy
+|-- proxy.conf.json  Local development API proxy
+`-- src/app
+    |-- core/
+    |   |-- api/      Typed REST API services
+    |   |-- auth/     Session state, JWT interceptors, and route guards
+    |   `-- models/   TypeScript request and response contracts
+    |-- features/
+    |   |-- auth/     Login and merchant registration
+    |   |-- payments/ Payment list, creation, detail, and lifecycle actions
+    |   |-- session/  Authenticated merchant overview
+    |   |-- team/     Merchant users and role assignment
+    |   |-- webhooks/ Endpoint configuration and delivery dashboard
+    |   `-- system/   Public API health check
+    |-- layout/       Authenticated Merchant Console shell
+    `-- shared/       Reusable styles, errors, and presentation components
 ```
 
 ## Design Decisions
@@ -586,6 +599,7 @@ frontend/src/app
 - **Signed delivery:** webhook secrets are encrypted at rest and used to authenticate payloads with HMAC-SHA256.
 - **At-least-once retries:** failed deliveries are persisted and retried with backoff; consumers deduplicate by event ID.
 - **Multi-stage Docker build:** Maven compiles the application in a build image, while the final image contains only the Java runtime and packaged application.
+- **Static frontend container:** Node compiles Angular in a build stage, while the final Nginx image contains only optimized browser assets and the reverse-proxy configuration.
 - **Feature-oriented frontend:** Angular code is organized around user-facing capabilities while shared API, authentication, and model concerns remain centralized.
 - **Frontend defense in depth:** route guards and role-aware controls improve the user experience, while Spring Security remains the authoritative permission boundary.
 - **Automatic token renewal:** an HTTP interceptor refreshes expired access tokens and retries the original request without dropping business headers such as `Idempotency-Key`.
@@ -601,8 +615,6 @@ The current version includes the backend foundation and a functional Angular Mer
 - Kafka-based event streaming for higher throughput and multiple consumers
 - Structured application metrics, tracing, and production profiles
 - Frontend end-to-end tests with Playwright or Cypress
-- Containerized frontend deployment with Nginx
-- Frontend checks in GitHub Actions
 
 ## Instructive Scope
 
