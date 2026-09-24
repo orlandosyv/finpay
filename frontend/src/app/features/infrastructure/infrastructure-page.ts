@@ -5,6 +5,8 @@ import { InfrastructureApiService } from '../../core/api/infrastructure-api.serv
 import { InfrastructureStatusResponse } from '../../core/models/infrastructure.models';
 import { requestError } from '../../shared/request-error';
 
+type InfrastructureView = 'live' | 'learn';
+
 @Component({
   selector: 'app-infrastructure-page',
   imports: [DatePipe],
@@ -17,6 +19,7 @@ export class InfrastructurePage implements OnInit {
   readonly status = signal<InfrastructureStatusResponse | null>(null);
   readonly loading = signal(false);
   readonly error = signal('');
+  readonly activeView = signal<InfrastructureView>('live');
 
   ngOnInit(): void {
     this.refresh();
@@ -33,5 +36,9 @@ export class InfrastructurePage implements OnInit {
         next: (status) => this.status.set(status),
         error: (error) => this.error.set(requestError(error)),
       });
+  }
+
+  selectView(view: InfrastructureView): void {
+    this.activeView.set(view);
   }
 }

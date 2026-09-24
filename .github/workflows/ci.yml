@@ -69,3 +69,25 @@ jobs:
 
       - name: Build frontend container
         run: docker build --tag finpay-frontend:ci .
+
+  kafka-listener-build-and-test:
+    name: Kafka listener build and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Make Maven Wrapper executable
+        run: chmod +x mvnw
+
+      - name: Build and run listener tests
+        run: ./mvnw --batch-mode --no-transfer-progress -f finpay-kafka-listener/pom.xml verify

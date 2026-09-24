@@ -24,6 +24,8 @@ The project focuses on API design, multi-tenant architecture, authentication and
 - Persist webhook events with a transactional outbox and retry failed deliveries
 - Publish payment lifecycle events to a versioned Apache Kafka topic from the transactional outbox
 - Persist Kafka attempts, retries, partition, offset, and failures independently from webhook delivery
+- Consume Kafka events in an independently deployable Spring Boot audit listener
+- Track consumer-group lag, committed offsets, deduplicated events, and an independent audit projection
 - Explore live topology, publication evidence, outage behavior, and architecture concepts in an educational Infrastructure Lab
 - Approve or decline pending payments
 - Refund approved payments
@@ -92,10 +94,11 @@ flowchart LR
     Dispatcher -->|Signed HTTP events| Merchant[Merchant webhook server]
     Outbox --> Publisher[Kafka publisher]
     Publisher -->|Key: payment ID| Kafka[(finpay.payment-events.v1)]
-    Kafka -. Step 3 .-> Consumers[Independent internal consumers]
+    Kafka -->|Consumer group finpay-audit-v1| Listener[finpay-kafka-listener]
+    Listener --> AuditDB[(finpay_listener_db)]
 ```
 
-Angular provides the user-facing workflow, but the API remains the authoritative security boundary. Every protected request is validated independently, and the authenticated JWT determines the current merchant and role. SQL Server stores business state and the durable outbox, while Redis manages refresh-token sessions and access-token revocation. Independent workers deliver each outbox event to merchant webhooks and to the `finpay.payment-events.v1` Kafka topic.
+Angular provides the user-facing workflow, but the API remains the authoritative security boundary. Every protected request is validated independently, and the authenticated JWT determines the current merchant and role. SQL Server stores business state and the durable outbox, while Redis manages refresh-token sessions and access-token revocation. Independent workers deliver each outbox event to merchant webhooks and Kafka. The sibling `finpay-kafka-listener` application consumes the topic into its own audit database without participating in the payment request.
 
 ## Payment Lifecycle
 
@@ -138,12 +141,12 @@ Any transition outside this flow is rejected with `409 Conflict`.
 
 ## Running with Docker
 
-This is the recommended way to run the complete FinPay platform. Docker Compose starts SQL Server, Redis, and a single-node Kafka broker, creates the `finpay_db` database, applies the Flyway migrations, creates the Kafka topic, starts the Spring Boot API, builds Angular, and serves the Merchant Console through Nginx.
+This is the recommended way to run the complete FinPay platform. Docker Compose starts SQL Server, Redis, a single-node Kafka broker, the independent Kafka listener, the API, and Angular. It creates separate `finpay_db` and `finpay_listener_db` databases and applies each application's Flyway migrations.
 
 ### Requirements
 
 - Docker Desktop with the Docker engine running
-- Available ports `4200`, `8080`, `1434`, `6379`, and `9094`, or different ports configured in `.env`
+- Available ports `4200`, `8080`, `8081`, `1434`, `6379`, and `9094`, or different ports configured in `.env`
 
 ### Start the application
 
@@ -181,6 +184,8 @@ The services are available at:
 
 - Merchant Console: `http://localhost:4200`
 - API and Swagger: `http://localhost:8080`
+- Kafka listener health: `http://localhost:8081/internal/health`
+- Kafka listener status: `http://localhost:8081/internal/kafka/status?merchantId=1`
 - SQL Server: host port `1434`
 - Redis: host port `6379`
 - Kafka: host port `9094`
@@ -188,6 +193,8 @@ The services are available at:
 The frontend container uses a multi-stage build. Node compiles the Angular application, but only the generated static files and Nginx remain in the final image. Nginx serves Angular routes and proxies `/api` requests to the Spring Boot container through Docker's internal network.
 
 The `sqlserver-init` container is a one-time initialization service. Seeing it with an `Exited (0)` status is expected and means that database creation completed successfully.
+
+The listener uses the consumer group `finpay-audit-v1` with three concurrent consumers, matching the three topic partitions. It commits offsets only after its database transaction succeeds and deduplicates at-least-once deliveries by event ID.
 
 ### Stop the application
 
@@ -380,6 +387,24 @@ docker compose start kafka
 
 After Kafka restarts, the publisher retries the durable event and the lab changes it from `PENDING` to `PUBLISHED` with a partition and offset.
 
+## Independent Kafka Listener
+
+`finpay-kafka-listener` is a sibling Spring Boot application in the same repository and a separate Docker process. It owns `finpay_listener_db`, consumes `finpay.payment-events.v1`, and stores a queryable audit projection containing the event ID, merchant, payment, lifecycle state, partition, offset, event time, and consumption time.
+
+Infrastructure Lab compares producer-side publications with consumer-side records and displays the consumer-group lag. To demonstrate decoupling:
+
+```powershell
+docker compose stop kafka-listener
+```
+
+Create or update payments. The API continues publishing, but consumed totals stop and lag grows. Then run:
+
+```powershell
+docker compose start kafka-listener
+```
+
+The listener resumes from the group's committed offsets, stores the pending audit events, and returns the lag to zero. This recovery does not require replaying an HTTP request or changing the payment API.
+
 Local development permits HTTP and private addresses so a receiver can run on the same machine. Production should set `FINPAY_WEBHOOK_REQUIRE_HTTPS=true`, `FINPAY_WEBHOOK_ALLOW_PRIVATE_ADDRESSES=false`, and use a dedicated `FINPAY_WEBHOOK_ENCRYPTION_KEY`.
 
 ### Webhook Operations Dashboard API
@@ -521,6 +546,7 @@ The test suite includes:
 - Webhook dashboard summary, filtering, pagination, detail, delivery history, and tenant-isolation tests
 - Kafka producer key, headers, payload, persisted status, partition, and offset tests
 - Real outbox-to-Kafka publication tests with Testcontainers
+- Independent listener mapping and duplicate-event tests
 - Flyway and SQL Server integration tests with Testcontainers
 - OpenAPI and Swagger endpoint checks
 
@@ -555,6 +581,12 @@ npm run build
 The optimized output is written to `frontend/dist/frontend`.
 
 GitHub Actions runs the backend and frontend pipelines as independent jobs. The frontend job restores the npm cache, installs dependencies with `npm ci`, executes the unit tests, creates the production bundle, and builds the final Nginx container image.
+
+Run the listener tests independently from the repository root:
+
+```powershell
+.\mvnw.cmd -f .\finpay-kafka-listener\pom.xml test
+```
 
 ## Running without Docker Compose
 
@@ -618,6 +650,14 @@ frontend
     |   `-- system/   Public API health check
     |-- layout/       Authenticated Merchant Console shell
     `-- shared/       Reusable styles, errors, and presentation components
+
+finpay-kafka-listener
+|-- Dockerfile        Independent runtime image
+|-- pom.xml           Listener-only Maven dependencies
+`-- src/
+    |-- main/java/    Kafka consumer, status endpoint, audit model, and lag probe
+    |-- main/resources/db/migration/  Listener-owned Flyway schema
+    `-- test/         Mapping and deduplication tests
 ```
 
 ## Design Decisions
@@ -642,6 +682,9 @@ frontend
 - **Independent delivery state:** Kafka publication and webhook delivery track their own attempts and outcomes, so either channel can fail and recover without blocking the other.
 - **Kafka ordering key:** the payment ID is the record key, keeping lifecycle events for one payment in the same partition while allowing different payments to scale across partitions.
 - **Kafka delivery semantics:** producer idempotence protects broker-level retries, while event IDs let consumers handle the remaining at-least-once duplicate window across SQL Server and Kafka.
+- **Independent consumer:** payment processing never calls the audit listener directly; Kafka is the only business-event connection between the applications.
+- **Consumer-owned projection:** the listener stores events in `finpay_listener_db`, preventing its read model and migrations from coupling to the payment database.
+- **Consumer groups and lag:** committed offsets let the listener resume after downtime, while lag makes pending work observable in Infrastructure Lab.
 - **Signed delivery:** webhook secrets are encrypted at rest and used to authenticate payloads with HMAC-SHA256.
 - **At-least-once retries:** failed deliveries are persisted and retried with backoff; consumers deduplicate by event ID.
 - **Multi-stage Docker build:** Maven compiles the application in a build image, while the final image contains only the Java runtime and packaged application.
@@ -659,7 +702,7 @@ The current version includes the backend foundation and a functional Angular Mer
 
 - Invitation-based onboarding and password setup for merchant users
 - Role changes, account disabling, and password-reset workflows
-- Independently scalable Kafka consumers for auditing, analytics, or fraud signals
+- Additional Kafka consumer groups for analytics or fraud signals
 - Structured application metrics, tracing, and production profiles
 - Frontend end-to-end tests with Playwright or Cypress
 

@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.finpay.api.context.CurrentMerchantProvider;
 import com.finpay.api.dto.InfrastructureStatusResponse;
 import com.finpay.api.dto.InfrastructureStatusResponse.KafkaEventStatus;
+import com.finpay.api.dto.InfrastructureStatusResponse.KafkaConsumerStatus;
 import com.finpay.api.dto.InfrastructureStatusResponse.KafkaStatus;
 import com.finpay.api.dto.InfrastructureStatusResponse.PipelineStage;
 import com.finpay.api.dto.InfrastructureStatusResponse.WebhookStatus;
@@ -27,6 +28,7 @@ public class InfrastructureStatusService {
     private final WebhookEndpointRepository webhookEndpointRepository;
     private final KafkaPublicationRepository kafkaPublicationRepository;
     private final KafkaClusterProbe kafkaClusterProbe;
+    private final KafkaListenerProbe kafkaListenerProbe;
     private final String topicName;
     private final boolean publishingEnabled;
 
@@ -35,12 +37,14 @@ public class InfrastructureStatusService {
             WebhookEndpointRepository webhookEndpointRepository,
             KafkaPublicationRepository kafkaPublicationRepository,
             KafkaClusterProbe kafkaClusterProbe,
+            KafkaListenerProbe kafkaListenerProbe,
             @Value("${finpay.kafka.payment-events-topic}") String topicName,
             @Value("${finpay.kafka.publisher-enabled}") boolean publishingEnabled) {
         this.currentMerchantProvider = currentMerchantProvider;
         this.webhookEndpointRepository = webhookEndpointRepository;
         this.kafkaPublicationRepository = kafkaPublicationRepository;
         this.kafkaClusterProbe = kafkaClusterProbe;
+        this.kafkaListenerProbe = kafkaListenerProbe;
         this.topicName = topicName;
         this.publishingEnabled = publishingEnabled;
     }
@@ -51,6 +55,7 @@ public class InfrastructureStatusService {
         Long merchantId = currentMerchantProvider.getCurrentMerchantId();
         long activeEndpoints = webhookEndpointRepository.countByMerchantIdAndActiveTrue(merchantId);
         KafkaProbeResult kafka = kafkaClusterProbe.inspect(topicName);
+        KafkaConsumerStatus consumer = kafkaListenerProbe.inspect(merchantId);
         long totalEvents = kafkaPublicationRepository.countByMerchant_Id(merchantId);
         long pendingEvents = kafkaPublicationRepository.countByMerchant_IdAndStatus(
                 merchantId, KafkaPublicationStatus.PENDING);
@@ -67,7 +72,7 @@ public class InfrastructureStatusService {
         KafkaStatus kafkaStatus = new KafkaStatus(
                 kafka.status(), topicName, kafka.topicAvailable(), kafka.partitions(),
                 publishingEnabled, kafka.clusterId(), totalEvents, pendingEvents,
-                publishedEvents, failedEvents, recentEvents, kafkaHint(kafka));
+                publishedEvents, failedEvents, recentEvents, consumer, kafkaHint(kafka));
         WebhookStatus webhookStatus = new WebhookStatus(
                 activeEndpoints > 0 ? "ACTIVE" : "NOT_CONFIGURED",
                 activeEndpoints,
@@ -91,7 +96,10 @@ public class InfrastructureStatusService {
                         new PipelineStage(4, "Internal event stream", "Apache Kafka", kafkaStage(kafka),
                                 publishingEnabled
                                         ? "The outbox publisher sends events for independent internal consumers."
-                                        : "The broker and topic are prepared, but publishing is disabled.")));
+                                        : "The broker and topic are prepared, but publishing is disabled."),
+                        new PipelineStage(5, "Independent audit projection", "finpay-kafka-listener",
+                                consumer.status(),
+                                consumer.hint())));
     }
 
     private KafkaEventStatus toKafkaEventStatus(KafkaPublication publication) {

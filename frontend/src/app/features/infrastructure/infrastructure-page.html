@@ -1,14 +1,14 @@
 <main>
   <header>
     <div>
-      <p class="eyebrow">Step 2 · Event publication</p>
+      <p class="eyebrow">Event-driven architecture</p>
       <h1>Infrastructure lab</h1>
       <p>
-        Follow one payment event from SQL Server to two independent destinations: Kafka for internal
-        consumers and webhooks for external merchants.
+        Observe what FinPay is doing right now, then switch to the learning view to understand why
+        Kafka, the listener and webhooks exist.
       </p>
     </div>
-    <button type="button" (click)="refresh()" [disabled]="loading()">
+    <button type="button" class="refresh-button" (click)="refresh()" [disabled]="loading()">
       {{ loading() ? 'Checking...' : 'Run live check' }}
     </button>
   </header>
@@ -21,244 +21,519 @@
   }
 
   @if (status(); as infrastructure) {
-    <p class="checked-at">Last checked {{ infrastructure.checkedAt | date: 'medium' }}</p>
-
-    <section class="lesson" aria-labelledby="lesson-title">
-      <div>
-        <p class="eyebrow">The idea in one minute</p>
-        <h2 id="lesson-title">One durable event, two delivery channels</h2>
-        <p>
-          The API first commits the payment and its outbox event in one SQL transaction. Background
-          workers later deliver that same event through Kafka and webhooks. A temporary outage does
-          not erase the event.
-        </p>
+    <div class="lab-toolbar">
+      <div class="lab-tabs" role="tablist" aria-label="Infrastructure lab views">
+        <button
+          id="live-tab"
+          type="button"
+          role="tab"
+          [attr.aria-selected]="activeView() === 'live'"
+          aria-controls="live-panel"
+          [class.active]="activeView() === 'live'"
+          (click)="selectView('live')"
+        >
+          Live operations
+        </button>
+        <button
+          id="learn-tab"
+          type="button"
+          role="tab"
+          [attr.aria-selected]="activeView() === 'learn'"
+          aria-controls="learn-panel"
+          [class.active]="activeView() === 'learn'"
+          (click)="selectView('learn')"
+        >
+          Learn the architecture
+        </button>
       </div>
-      <div class="topology" aria-label="Event topology">
-        <span>Payment API</span><b>→</b><span>SQL + Outbox</span><b>↗</b><span>Kafka</span> <i></i
-        ><i></i><i></i><b>↘</b><span>Webhooks</span>
-      </div>
-    </section>
+      <p class="checked-at">Last checked {{ infrastructure.checkedAt | date: 'medium' }}</p>
+    </div>
 
-    <section class="metrics" aria-label="Kafka publication metrics">
-      <article>
-        <small>Total events</small><strong>{{ infrastructure.kafka.totalEvents }}</strong>
-      </article>
-      <article>
-        <small>Published</small><strong>{{ infrastructure.kafka.publishedEvents }}</strong>
-      </article>
-      <article>
-        <small>Pending / retrying</small><strong>{{ infrastructure.kafka.pendingEvents }}</strong>
-      </article>
-      <article>
-        <small>Failed</small><strong>{{ infrastructure.kafka.failedEvents }}</strong>
-      </article>
-    </section>
-
-    <section class="status-grid" aria-label="Live infrastructure status">
-      <article class="status-card">
-        <div class="card-heading">
+    @if (activeView() === 'live') {
+      <div id="live-panel" class="view-panel" role="tabpanel" aria-labelledby="live-tab">
+        <section class="view-intro" aria-labelledby="live-title">
           <div>
-            <p class="eyebrow">Internal event streaming</p>
-            <h2>Apache Kafka</h2>
+            <p class="eyebrow">Current state</p>
+            <h2 id="live-title">Follow the event while it moves</h2>
           </div>
-          <span class="state" [attr.data-state]="infrastructure.kafka.status">{{
-            infrastructure.kafka.status
-          }}</span>
-        </div>
-        <dl>
-          <dt>Topic</dt>
-          <dd>
-            <code>{{ infrastructure.kafka.topic }}</code>
-          </dd>
-          <dt>Topic ready</dt>
-          <dd>{{ infrastructure.kafka.topicAvailable ? 'Yes' : 'No' }}</dd>
-          <dt>Partitions</dt>
-          <dd>{{ infrastructure.kafka.partitions }}</dd>
-          <dt>Payment publisher</dt>
-          <dd>{{ infrastructure.kafka.publishingEnabled ? 'Active' : 'Not active yet' }}</dd>
-          <dt>Message key</dt>
-          <dd>Payment ID</dd>
-          <dt>Delivery guarantee</dt>
-          <dd>At least once</dd>
-        </dl>
-        <p class="hint"><strong>Hint:</strong> {{ infrastructure.kafka.hint }}</p>
-      </article>
+          <p>
+            Create or update a payment, run a live check, and compare what was published, consumed
+            and delivered externally.
+          </p>
+        </section>
 
-      <article class="status-card">
-        <div class="card-heading">
-          <div>
-            <p class="eyebrow">External integration</p>
-            <h2>Webhooks</h2>
-          </div>
-          <span class="state" [attr.data-state]="infrastructure.webhooks.status">{{
-            infrastructure.webhooks.status
-          }}</span>
-        </div>
-        <dl>
-          <dt>Active endpoints</dt>
-          <dd>{{ infrastructure.webhooks.activeEndpoints }}</dd>
-          <dt>Delivery mode</dt>
-          <dd>{{ infrastructure.webhooks.deliveryMode }}</dd>
-        </dl>
-        <p class="hint"><strong>Hint:</strong> {{ infrastructure.webhooks.hint }}</p>
-      </article>
-    </section>
+        <section class="metrics" aria-label="Kafka event metrics">
+          <article>
+            <small>Total events</small><strong>{{ infrastructure.kafka.totalEvents }}</strong
+            ><span>Prepared for Kafka</span>
+          </article>
+          <article>
+            <small>Published</small><strong>{{ infrastructure.kafka.publishedEvents }}</strong
+            ><span>Accepted by Kafka</span>
+          </article>
+          <article>
+            <small>Pending / retrying</small
+            ><strong>{{ infrastructure.kafka.pendingEvents }}</strong
+            ><span>Waiting for Kafka</span>
+          </article>
+          <article>
+            <small>Failed</small><strong>{{ infrastructure.kafka.failedEvents }}</strong
+            ><span>Publisher failures</span>
+          </article>
+          <article>
+            <small>Consumed</small
+            ><strong>{{ infrastructure.kafka.consumer.consumedEvents }}</strong
+            ><span>Stored by the listener</span>
+          </article>
+          <article>
+            <small>Consumer lag</small
+            ><strong>{{ infrastructure.kafka.consumer.consumerGroupLag }}</strong
+            ><span>Still waiting to be consumed</span>
+          </article>
+        </section>
 
-    <section aria-labelledby="events-title">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">Evidence, not only status</p>
-          <h2 id="events-title">Recent Kafka publications</h2>
-        </div>
-        <span class="legend">Partition and offset are assigned by Kafka</span>
-      </div>
-      @if (infrastructure.kafka.recentEvents.length) {
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Event</th>
-                <th>Payment</th>
-                <th>Status</th>
-                <th>Attempts</th>
-                <th>Kafka position</th>
-                <th>Time</th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (event of infrastructure.kafka.recentEvents; track event.eventId) {
-                <tr>
-                  <td>
-                    <strong>{{ event.eventType }}</strong
-                    ><small>{{ event.eventId }}</small>
-                  </td>
-                  <td>#{{ event.paymentId }}</td>
-                  <td>
-                    <span class="state" [attr.data-state]="event.status">{{ event.status }}</span>
-                  </td>
-                  <td>{{ event.attempts }}</td>
-                  <td>
-                    @if (event.partition !== null) {
-                      P{{ event.partition }} · O{{ event.offset }}
-                    } @else {
-                      Waiting
-                    }
-                  </td>
-                  <td>
+        <section class="systems" aria-label="Live infrastructure services">
+          <article class="system-card">
+            <div class="system-heading">
+              <div class="system-number">01</div>
+              <div>
+                <p class="eyebrow">Internal event broker</p>
+                <h2>Apache Kafka</h2>
+                <p class="system-summary">
+                  Receives durable payment events from the API and keeps them available for internal
+                  consumer groups.
+                </p>
+              </div>
+              <span class="state" [attr.data-state]="infrastructure.kafka.status">{{
+                infrastructure.kafka.status
+              }}</span>
+            </div>
+            <div class="system-body">
+              <dl>
+                <div>
+                  <dt>Topic</dt>
+                  <dd>
+                    <code>{{ infrastructure.kafka.topic }}</code>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Topic ready</dt>
+                  <dd>{{ infrastructure.kafka.topicAvailable ? 'Yes' : 'No' }}</dd>
+                </div>
+                <div>
+                  <dt>Partitions</dt>
+                  <dd>{{ infrastructure.kafka.partitions }}</dd>
+                </div>
+                <div>
+                  <dt>Payment publisher</dt>
+                  <dd>
+                    {{ infrastructure.kafka.publishingEnabled ? 'Active' : 'Not active yet' }}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Message key</dt>
+                  <dd>Payment ID</dd>
+                </div>
+                <div>
+                  <dt>Delivery guarantee</dt>
+                  <dd>At least once</dd>
+                </div>
+              </dl>
+              <p class="hint"><strong>What this means:</strong> {{ infrastructure.kafka.hint }}</p>
+            </div>
+          </article>
+
+          <article class="system-card featured-card">
+            <div class="system-heading">
+              <div class="system-number">02</div>
+              <div>
+                <p class="eyebrow">Independent internal application</p>
+                <h2>Kafka listener</h2>
+                <p class="system-summary">
+                  Reads Kafka records, deduplicates them and creates an audit projection in its own
+                  database.
+                </p>
+              </div>
+              <span class="state" [attr.data-state]="infrastructure.kafka.consumer.status">{{
+                infrastructure.kafka.consumer.status
+              }}</span>
+            </div>
+            <div class="system-body">
+              <dl>
+                <div>
+                  <dt>Application</dt>
+                  <dd>
+                    <code>{{ infrastructure.kafka.consumer.application }}</code>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Consumer group</dt>
+                  <dd>
+                    <code>{{ infrastructure.kafka.consumer.consumerGroup }}</code>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Concurrent consumers</dt>
+                  <dd>{{ infrastructure.kafka.consumer.concurrency }}</dd>
+                </div>
+                <div>
+                  <dt>Consumed by merchant</dt>
+                  <dd>{{ infrastructure.kafka.consumer.consumedEvents }}</dd>
+                </div>
+                <div>
+                  <dt>Group lag</dt>
+                  <dd>{{ infrastructure.kafka.consumer.consumerGroupLag }}</dd>
+                </div>
+                <div>
+                  <dt>Last consumed</dt>
+                  <dd>
                     {{
-                      event.publishedAt || event.nextAttemptAt || event.createdAt
-                        | date: 'mediumTime'
+                      infrastructure.kafka.consumer.lastConsumedAt
+                        ? (infrastructure.kafka.consumer.lastConsumedAt | date: 'mediumTime')
+                        : 'No events yet'
                     }}
-                    @if (event.lastError) {
-                      <small class="event-error">{{ event.lastError }}</small>
-                    }
-                  </td>
-                </tr>
-              }
-            </tbody>
-          </table>
-        </div>
-      } @else {
-        <p class="empty-state">
-          Create or change a payment to generate the first observable Kafka event.
-        </p>
-      }
-    </section>
+                  </dd>
+                </div>
+              </dl>
+              <p class="hint">
+                <strong>What this means:</strong> {{ infrastructure.kafka.consumer.hint }}
+              </p>
+            </div>
+          </article>
 
-    <section aria-labelledby="pipeline-title">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">Live architecture map</p>
-          <h2 id="pipeline-title">Payment event pipeline</h2>
-        </div>
-        <span class="legend">Status comes from the API</span>
-      </div>
-      <ol class="pipeline">
-        @for (stage of infrastructure.pipeline; track stage.order) {
-          <li>
-            <span class="step">0{{ stage.order }}</span>
-            <div>
-              <small>{{ stage.technology }}</small>
-              <h3>{{ stage.name }}</h3>
-              <p>{{ stage.hint }}</p>
+          <article class="system-card">
+            <div class="system-heading">
+              <div class="system-number">03</div>
+              <div>
+                <p class="eyebrow">External HTTP integration</p>
+                <h2>Webhooks</h2>
+                <p class="system-summary">
+                  Pushes signed payment notifications to merchant-owned servers and records each
+                  HTTP delivery attempt.
+                </p>
+              </div>
+              <span class="state" [attr.data-state]="infrastructure.webhooks.status">{{
+                infrastructure.webhooks.status
+              }}</span>
             </div>
-            <span class="state" [attr.data-state]="stage.state">{{ stage.state }}</span>
-          </li>
-        }
-      </ol>
-    </section>
+            <div class="system-body">
+              <dl>
+                <div>
+                  <dt>Active endpoints</dt>
+                  <dd>{{ infrastructure.webhooks.activeEndpoints }}</dd>
+                </div>
+                <div>
+                  <dt>Delivery mode</dt>
+                  <dd>{{ infrastructure.webhooks.deliveryMode }}</dd>
+                </div>
+                <div>
+                  <dt>Destination</dt>
+                  <dd>Merchant HTTP server</dd>
+                </div>
+                <div>
+                  <dt>Success evidence</dt>
+                  <dd>HTTP 2xx response</dd>
+                </div>
+              </dl>
+              <p class="hint">
+                <strong>What this means:</strong> {{ infrastructure.webhooks.hint }}
+              </p>
+            </div>
+          </article>
+        </section>
 
-    <section aria-labelledby="contrast-title">
-      <p class="eyebrow">Why these tools exist</p>
-      <h2 id="contrast-title">With the tool vs. without it</h2>
-      <div class="contrast-grid">
-        <article>
-          <h3>Kafka</h3>
-          <div class="comparison">
+        <section aria-labelledby="pipeline-title">
+          <div class="section-heading">
             <div>
-              <strong>With Kafka</strong>
-              <p>Multiple internal consumers can process the same durable event independently.</p>
+              <p class="eyebrow">Live architecture map</p>
+              <h2 id="pipeline-title">Payment event pipeline</h2>
             </div>
-            <div>
-              <strong>Without Kafka</strong>
-              <p>New internal tasks are coupled directly to the payment request or database.</p>
-            </div>
+            <span class="legend">Each state comes from the running services</span>
           </div>
-        </article>
-        <article>
-          <h3>Webhooks</h3>
-          <div class="comparison">
+          <ol class="pipeline">
+            @for (stage of infrastructure.pipeline; track stage.order) {
+              <li>
+                <span class="step">0{{ stage.order }}</span>
+                <div>
+                  <small>{{ stage.technology }}</small>
+                  <h3>{{ stage.name }}</h3>
+                  <p>{{ stage.hint }}</p>
+                </div>
+                <span class="state" [attr.data-state]="stage.state">{{ stage.state }}</span>
+              </li>
+            }
+          </ol>
+        </section>
+
+        <section aria-labelledby="events-title">
+          <div class="section-heading">
             <div>
-              <strong>With webhooks</strong>
-              <p>The merchant receives signed notifications automatically, including retries.</p>
+              <p class="eyebrow">Producer-side evidence</p>
+              <h2 id="events-title">Recent Kafka publications</h2>
             </div>
-            <div>
-              <strong>Without webhooks</strong>
-              <p>The merchant must poll FinPay repeatedly to discover payment changes.</p>
-            </div>
+            <span class="legend">The API published these records</span>
           </div>
-        </article>
-      </div>
-    </section>
+          @if (infrastructure.kafka.recentEvents.length) {
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Event</th>
+                    <th>Payment</th>
+                    <th>Status</th>
+                    <th>Attempts</th>
+                    <th>Kafka position</th>
+                    <th>Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (event of infrastructure.kafka.recentEvents; track event.eventId) {
+                    <tr>
+                      <td>
+                        <strong>{{ event.eventType }}</strong
+                        ><small>{{ event.eventId }}</small>
+                      </td>
+                      <td>#{{ event.paymentId }}</td>
+                      <td>
+                        <span class="state" [attr.data-state]="event.status">{{
+                          event.status
+                        }}</span>
+                      </td>
+                      <td>{{ event.attempts }}</td>
+                      <td>
+                        @if (event.partition !== null) {
+                          P{{ event.partition }} · O{{ event.offset }}
+                        } @else {
+                          Waiting
+                        }
+                      </td>
+                      <td>
+                        {{
+                          event.publishedAt || event.nextAttemptAt || event.createdAt
+                            | date: 'mediumTime'
+                        }}
+                        @if (event.lastError) {
+                          <small class="event-error">{{ event.lastError }}</small>
+                        }
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else {
+            <p class="empty-state">Create or change a payment to generate the first Kafka event.</p>
+          }
+        </section>
 
-    <section aria-labelledby="concepts-title">
-      <p class="eyebrow">Interview-ready concepts</p>
-      <h2 id="concepts-title">What each pattern solves</h2>
-      <div class="concept-grid">
-        <article>
-          <strong>Transactional outbox</strong>
-          <p>
-            Prevents a payment from being committed without first leaving a durable event to
-            publish.
-          </p>
-        </article>
-        <article>
-          <strong>Kafka</strong>
-          <p>
-            Decouples internal consumers so analytics, auditing, or fraud detection can evolve
-            independently.
-          </p>
-        </article>
-        <article>
-          <strong>Webhooks</strong>
-          <p>
-            Push signed HTTP notifications across the system boundary to merchant-owned servers.
-          </p>
-        </article>
-        <article>
-          <strong>At-least-once</strong>
-          <p>Prioritizes not losing events; consumers must deduplicate with the event ID.</p>
-        </article>
+        <section aria-labelledby="consumed-events-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Consumer-side evidence</p>
+              <h2 id="consumed-events-title">Recently consumed events</h2>
+            </div>
+            <span class="legend">The listener stored these records in its audit database</span>
+          </div>
+          @if (infrastructure.kafka.consumer.recentEvents.length) {
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Event</th>
+                    <th>Payment</th>
+                    <th>Resulting status</th>
+                    <th>Kafka position</th>
+                    <th>Consumed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (event of infrastructure.kafka.consumer.recentEvents; track event.eventId) {
+                    <tr>
+                      <td>
+                        <strong>{{ event.eventType }}</strong
+                        ><small>{{ event.eventId }}</small>
+                      </td>
+                      <td>#{{ event.paymentId }}</td>
+                      <td>{{ event.paymentStatus }}</td>
+                      <td>P{{ event.partition }} · O{{ event.offset }}</td>
+                      <td>{{ event.consumedAt | date: 'mediumTime' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else {
+            <p class="empty-state">No event has been stored by the independent listener yet.</p>
+          }
+        </section>
       </div>
-    </section>
+    } @else {
+      <div id="learn-panel" class="view-panel" role="tabpanel" aria-labelledby="learn-tab">
+        <section class="lesson" aria-labelledby="lesson-title">
+          <div>
+            <p class="eyebrow">Architecture overview</p>
+            <h2 id="lesson-title">One durable event, two independent destinations</h2>
+            <p>
+              The payment and its outbox event are committed together. Kafka serves internal
+              applications, while webhooks cross the system boundary to merchant servers.
+            </p>
+          </div>
+          <div class="topology" aria-label="Event topology">
+            <div>
+              <span>Payment API</span><b>→</b><span>SQL + Outbox</span><b>→</b><span>Kafka</span>
+            </div>
+            <div><span>Kafka</span><b>→</b><span>Listener</span><b>→</b><span>Audit DB</span></div>
+            <div><span>Outbox</span><b>→</b><span>Webhooks</span><b>→</b><span>Merchant</span></div>
+          </div>
+        </section>
 
-    <aside class="learning-note">
-      <strong>Step 2 is active</strong>
-      <p>
-        “Connected” proves only that the broker is reachable. A PUBLISHED row with a partition and
-        offset proves that a concrete payment event was accepted by Kafka. Stop Kafka, create a
-        payment, and restart it to see the durable outbox and retry mechanism in action.
-      </p>
-    </aside>
+        <section aria-labelledby="journey-title">
+          <p class="eyebrow">Read one event from left to right</p>
+          <h2 id="journey-title">What changes after a payment is created?</h2>
+          <ol class="journey">
+            <li>
+              <span>1</span>
+              <div>
+                <strong>SQL transaction</strong>
+                <p>The payment and outbox event become durable together.</p>
+              </div>
+            </li>
+            <li>
+              <span>2</span>
+              <div>
+                <strong>Kafka publication</strong>
+                <p>Published increases and Kafka assigns a partition and offset.</p>
+              </div>
+            </li>
+            <li>
+              <span>3</span>
+              <div>
+                <strong>Internal consumption</strong>
+                <p>Consumed increases and lag returns to zero after the listener stores it.</p>
+              </div>
+            </li>
+            <li>
+              <span>4</span>
+              <div>
+                <strong>External notification</strong>
+                <p>The webhook dashboard records the merchant server's HTTP response.</p>
+              </div>
+            </li>
+          </ol>
+        </section>
+
+        <section aria-labelledby="contrast-title">
+          <p class="eyebrow">Compare the responsibilities</p>
+          <h2 id="contrast-title">Kafka and webhooks solve different boundaries</h2>
+          <div class="contrast-grid">
+            <article>
+              <h3>Kafka</h3>
+              <p class="concept-purpose">Internal, durable and pull-based communication.</p>
+              <div class="comparison">
+                <div>
+                  <strong>With Kafka</strong>
+                  <p>
+                    Independent services consume the same event through their own consumer groups.
+                  </p>
+                </div>
+                <div>
+                  <strong>Without Kafka</strong>
+                  <p>The payment request must call every internal task directly.</p>
+                </div>
+              </div>
+            </article>
+            <article>
+              <h3>Webhooks</h3>
+              <p class="concept-purpose">External, signed and push-based communication.</p>
+              <div class="comparison">
+                <div>
+                  <strong>With webhooks</strong>
+                  <p>The merchant receives automatic notifications and FinPay records retries.</p>
+                </div>
+                <div>
+                  <strong>Without webhooks</strong>
+                  <p>The merchant repeatedly polls the payment API to discover changes.</p>
+                </div>
+              </div>
+            </article>
+            <article>
+              <h3>Independent listener</h3>
+              <p class="concept-purpose">A consumer that can stop without stopping payments.</p>
+              <div class="comparison">
+                <div>
+                  <strong>Listener running</strong>
+                  <p>Offsets advance and the audit projection stays current.</p>
+                </div>
+                <div>
+                  <strong>Listener stopped</strong>
+                  <p>Kafka retains records and lag grows until the listener returns.</p>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section aria-labelledby="concepts-title">
+          <p class="eyebrow">Interview-ready vocabulary</p>
+          <h2 id="concepts-title">Core concepts</h2>
+          <div class="concept-grid">
+            <article>
+              <strong>Transactional outbox</strong>
+              <p>Keeps the payment and its future notification consistent.</p>
+            </article>
+            <article>
+              <strong>Topic</strong>
+              <p>The named Kafka stream where related events are retained.</p>
+            </article>
+            <article>
+              <strong>Partition</strong>
+              <p>An ordered portion of a topic that enables parallel processing.</p>
+            </article>
+            <article>
+              <strong>Offset</strong>
+              <p>The record's sequential position inside one partition.</p>
+            </article>
+            <article>
+              <strong>Consumer group</strong>
+              <p>Tracks progress and distributes partitions between consumer instances.</p>
+            </article>
+            <article>
+              <strong>At-least-once</strong>
+              <p>Protects against lost events, so consumers deduplicate by event ID.</p>
+            </article>
+          </div>
+        </section>
+
+        <section aria-labelledby="experiments-title">
+          <p class="eyebrow">Try it yourself</p>
+          <h2 id="experiments-title">Two controlled experiments</h2>
+          <div class="experiment-grid">
+            <article>
+              <span class="experiment-number">A</span>
+              <div>
+                <h3>Stop the listener</h3>
+                <code>docker compose stop kafka-listener</code>
+                <p>
+                  Create a payment. Published grows, Consumed pauses and Consumer lag increases.
+                </p>
+                <code>docker compose start kafka-listener</code>
+                <p>The listener catches up and lag returns to zero.</p>
+              </div>
+            </article>
+            <article>
+              <span class="experiment-number">B</span>
+              <div>
+                <h3>Stop the webhook receiver</h3>
+                <p>Create or update a payment while the merchant endpoint is unavailable.</p>
+                <p>
+                  Kafka can still publish and consume, while the webhook dashboard records a failed
+                  HTTP delivery and retry.
+                </p>
+              </div>
+            </article>
+          </div>
+        </section>
+      </div>
+    }
   }
 </main>

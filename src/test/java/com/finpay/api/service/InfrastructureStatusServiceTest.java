@@ -11,6 +11,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.finpay.api.context.CurrentMerchantProvider;
 import com.finpay.api.dto.InfrastructureStatusResponse;
+import com.finpay.api.dto.InfrastructureStatusResponse.KafkaConsumerStatus;
 import com.finpay.api.model.KafkaPublicationStatus;
 import com.finpay.api.repository.KafkaPublicationRepository;
 import com.finpay.api.repository.WebhookEndpointRepository;
@@ -31,6 +32,9 @@ class InfrastructureStatusServiceTest {
     @Mock
     private KafkaClusterProbe kafkaClusterProbe;
 
+    @Mock
+    private KafkaListenerProbe kafkaListenerProbe;
+
     private InfrastructureStatusService service;
 
     @BeforeEach
@@ -40,6 +44,7 @@ class InfrastructureStatusServiceTest {
                 webhookEndpointRepository,
                 kafkaPublicationRepository,
                 kafkaClusterProbe,
+                kafkaListenerProbe,
                 "finpay.payment-events.v1",
                 true);
     }
@@ -55,6 +60,7 @@ class InfrastructureStatusServiceTest {
                 42L, KafkaPublicationStatus.PENDING)).thenReturn(2L);
         when(kafkaClusterProbe.inspect("finpay.payment-events.v1"))
                 .thenReturn(KafkaProbeResult.connected("cluster-1", 3));
+        when(kafkaListenerProbe.inspect(42L)).thenReturn(runningConsumer());
 
         InfrastructureStatusResponse response = service.getStatus();
 
@@ -65,8 +71,10 @@ class InfrastructureStatusServiceTest {
         assertThat(response.kafka().totalEvents()).isEqualTo(8);
         assertThat(response.kafka().publishedEvents()).isEqualTo(6);
         assertThat(response.kafka().pendingEvents()).isEqualTo(2);
+        assertThat(response.kafka().consumer().status()).isEqualTo("RUNNING");
         assertThat(response.webhooks().activeEndpoints()).isEqualTo(2);
         assertThat(response.pipeline().get(3).state()).isEqualTo("ACTIVE");
+        assertThat(response.pipeline().get(4).state()).isEqualTo("RUNNING");
     }
 
     @Test
@@ -75,11 +83,27 @@ class InfrastructureStatusServiceTest {
         when(webhookEndpointRepository.countByMerchantIdAndActiveTrue(42L)).thenReturn(0L);
         when(kafkaClusterProbe.inspect("finpay.payment-events.v1"))
                 .thenReturn(KafkaProbeResult.disconnected());
+        when(kafkaListenerProbe.inspect(42L)).thenReturn(runningConsumer());
 
         InfrastructureStatusResponse response = service.getStatus();
 
         assertThat(response.kafka().status()).isEqualTo("DISCONNECTED");
         assertThat(response.webhooks().status()).isEqualTo("NOT_CONFIGURED");
         assertThat(response.pipeline().get(3).state()).isEqualTo("DISCONNECTED");
+    }
+
+    private KafkaConsumerStatus runningConsumer() {
+        return new KafkaConsumerStatus(
+                java.time.Instant.now(),
+                "RUNNING",
+                "finpay-kafka-listener",
+                "finpay.payment-events.v1",
+                "finpay-audit-v1",
+                3,
+                6,
+                0,
+                java.time.Instant.now(),
+                java.util.List.of(),
+                "The listener is caught up.");
     }
 }

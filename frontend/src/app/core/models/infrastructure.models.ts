@@ -10,7 +10,33 @@ export interface KafkaInfrastructureStatus {
   publishedEvents: number;
   failedEvents: number;
   recentEvents: KafkaEventStatus[];
+  consumer: KafkaConsumerStatus;
   hint: string;
+}
+
+export interface KafkaConsumerStatus {
+  checkedAt: string;
+  status: 'RUNNING' | 'STOPPED' | 'DISCONNECTED' | 'UNAVAILABLE' | 'DISABLED';
+  application: string;
+  topic: string | null;
+  consumerGroup: string;
+  concurrency: number;
+  consumedEvents: number;
+  consumerGroupLag: number;
+  lastConsumedAt: string | null;
+  recentEvents: KafkaConsumedEvent[];
+  hint: string;
+}
+
+export interface KafkaConsumedEvent {
+  eventId: string;
+  paymentId: number;
+  eventType: string;
+  paymentStatus: string;
+  partition: number;
+  offset: number;
+  occurredAt: string;
+  consumedAt: string;
 }
 
 export interface KafkaEventStatus {

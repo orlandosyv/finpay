@@ -21,7 +21,33 @@ public record InfrastructureStatusResponse(
             long publishedEvents,
             long failedEvents,
             List<KafkaEventStatus> recentEvents,
+            KafkaConsumerStatus consumer,
             String hint) {
+    }
+
+    public record KafkaConsumerStatus(
+            Instant checkedAt,
+            String status,
+            String application,
+            String topic,
+            String consumerGroup,
+            int concurrency,
+            long consumedEvents,
+            long consumerGroupLag,
+            Instant lastConsumedAt,
+            List<KafkaConsumedEvent> recentEvents,
+            String hint) {
+    }
+
+    public record KafkaConsumedEvent(
+            String eventId,
+            Long paymentId,
+            String eventType,
+            String paymentStatus,
+            int partition,
+            long offset,
+            Instant occurredAt,
+            Instant consumedAt) {
     }
 
     public record KafkaEventStatus(

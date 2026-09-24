@@ -31,7 +31,8 @@ services:
       - -c
       - >-
         /opt/mssql-tools18/bin/sqlcmd -S sqlserver -U sa -P "$$MSSQL_SA_PASSWORD" -C -b
-        -Q "IF DB_ID(N'finpay_db') IS NULL CREATE DATABASE finpay_db"
+        -Q "IF DB_ID(N'finpay_db') IS NULL CREATE DATABASE finpay_db;
+        IF DB_ID(N'finpay_listener_db') IS NULL CREATE DATABASE finpay_listener_db;"
     restart: "no"
 
   redis:
@@ -105,10 +106,40 @@ services:
       FINPAY_KAFKA_ENABLED: "true"
       FINPAY_KAFKA_PUBLISHER_ENABLED: "true"
       FINPAY_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      FINPAY_KAFKA_LISTENER_URL: http://kafka-listener:8081
       SPRING_DATASOURCE_URL: jdbc:sqlserver://sqlserver:1433;databaseName=finpay_db;encrypt=true;trustServerCertificate=true
       SPRING_JPA_SHOW_SQL: "false"
     ports:
       - "${FINPAY_API_PORT:-8080}:8080"
+    restart: unless-stopped
+
+  kafka-listener:
+    build:
+      context: .
+      dockerfile: finpay-kafka-listener/Dockerfile
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      sqlserver-init:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+    environment:
+      FINPAY_DB_USERNAME: sa
+      FINPAY_DB_PASSWORD: ${FINPAY_DB_PASSWORD:?Set FINPAY_DB_PASSWORD in a .env file}
+      FINPAY_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      FINPAY_KAFKA_TOPIC: finpay.payment-events.v1
+      FINPAY_KAFKA_CONSUMER_GROUP: finpay-audit-v1
+      FINPAY_KAFKA_CONCURRENCY: 3
+      SPRING_DATASOURCE_URL: jdbc:sqlserver://sqlserver:1433;databaseName=finpay_listener_db;encrypt=true;trustServerCertificate=true
+    ports:
+      - "${FINPAY_LISTENER_PORT:-8081}:8081"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8081'"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     restart: unless-stopped
 
   frontend:
