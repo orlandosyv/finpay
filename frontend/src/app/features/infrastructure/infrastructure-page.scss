@@ -131,7 +131,7 @@ button:disabled {
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 12px;
 }
 
@@ -328,6 +328,15 @@ td small {
   max-width: 280px;
   color: #404040;
   white-space: normal;
+}
+
+.dead-letter-table td:nth-child(3) {
+  min-width: 280px;
+  white-space: normal;
+}
+
+.success-empty {
+  border-style: solid;
 }
 
 .empty-state {

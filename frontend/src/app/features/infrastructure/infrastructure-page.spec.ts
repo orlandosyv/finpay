@@ -70,6 +70,23 @@ describe('InfrastructurePage', () => {
               consumedAt: '2026-09-22T20:00:02Z',
             },
           ],
+          deadLetter: {
+            topic: 'finpay.payment-events.v1.DLT',
+            maxRetries: 3,
+            retryIntervalMs: 2000,
+            events: 1,
+            recentEvents: [
+              {
+                eventId: 'event-invalid',
+                originalTopic: 'finpay.payment-events.v1',
+                originalPartition: 1,
+                originalOffset: 15,
+                exceptionClass: 'java.lang.IllegalArgumentException',
+                exceptionMessage: 'Payment event payload is invalid',
+                failedAt: '2026-09-22T20:00:03Z',
+              },
+            ],
+          },
           hint: 'The listener is caught up.',
         },
         hint: 'The publisher is active.',
@@ -117,6 +134,9 @@ describe('InfrastructurePage', () => {
     expect(text).toContain('Consumer lag');
     expect(text).toContain('Recently consumed events');
     expect(text).toContain('Producer-side evidence');
+    expect(text).toContain('Dead Letter Topic');
+    expect(text).toContain('Payment event payload is invalid');
+    expect(text).toContain('3 retries');
     expect(text).not.toContain('Transactional outbox');
 
     const learnTab: HTMLButtonElement = fixture.nativeElement.querySelector('#learn-tab');
@@ -128,6 +148,7 @@ describe('InfrastructurePage', () => {
     expect(text).toContain('With Kafka');
     expect(text).toContain('Without Kafka');
     expect(text).toContain('Stop the listener');
+    expect(text).toContain('Send an invalid Kafka record');
     expect(text).not.toContain('Recent Kafka publications');
   });
 });

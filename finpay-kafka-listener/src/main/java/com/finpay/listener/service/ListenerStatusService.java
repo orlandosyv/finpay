@@ -22,8 +22,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.finpay.listener.dto.ListenerStatusResponse;
 import com.finpay.listener.dto.ListenerStatusResponse.ConsumedEventResponse;
+import com.finpay.listener.dto.ListenerStatusResponse.DeadLetterEventResponse;
+import com.finpay.listener.dto.ListenerStatusResponse.DeadLetterStatus;
 import com.finpay.listener.model.ConsumedPaymentEvent;
+import com.finpay.listener.model.DeadLetterPaymentEvent;
 import com.finpay.listener.repository.ConsumedPaymentEventRepository;
+import com.finpay.listener.repository.DeadLetterPaymentEventRepository;
 
 @Service
 public class ListenerStatusService {
@@ -32,25 +36,37 @@ public class ListenerStatusService {
     private static final String LISTENER_ID = "finpay-payment-audit-listener";
 
     private final ConsumedPaymentEventRepository repository;
+    private final DeadLetterPaymentEventRepository deadLetterRepository;
     private final KafkaListenerEndpointRegistry registry;
     private final KafkaAdmin kafkaAdmin;
     private final String topic;
     private final String consumerGroup;
     private final int concurrency;
+    private final String dltTopic;
+    private final int maxRetries;
+    private final long retryIntervalMs;
 
     public ListenerStatusService(
             ConsumedPaymentEventRepository repository,
+            DeadLetterPaymentEventRepository deadLetterRepository,
             KafkaListenerEndpointRegistry registry,
             KafkaAdmin kafkaAdmin,
             @Value("${finpay.kafka.topic}") String topic,
             @Value("${finpay.kafka.consumer-group}") String consumerGroup,
-            @Value("${finpay.kafka.concurrency:3}") int concurrency) {
+            @Value("${finpay.kafka.concurrency:3}") int concurrency,
+            @Value("${finpay.kafka.dlt-topic}") String dltTopic,
+            @Value("${finpay.kafka.max-retries:3}") int maxRetries,
+            @Value("${finpay.kafka.retry-interval-ms:2000}") long retryIntervalMs) {
         this.repository = repository;
+        this.deadLetterRepository = deadLetterRepository;
         this.registry = registry;
         this.kafkaAdmin = kafkaAdmin;
         this.topic = topic;
         this.consumerGroup = consumerGroup;
         this.concurrency = concurrency;
+        this.dltTopic = dltTopic;
+        this.maxRetries = maxRetries;
+        this.retryIntervalMs = retryIntervalMs;
     }
 
     @Transactional(readOnly = true)
@@ -58,6 +74,9 @@ public class ListenerStatusService {
         List<ConsumedPaymentEvent> events = repository
                 .findTop10ByMerchantIdOrderByConsumedAtDesc(merchantId);
         long consumedEvents = repository.countByMerchantId(merchantId);
+        List<DeadLetterPaymentEvent> deadLetters = deadLetterRepository
+                .findTop10ByMerchantIdOrderByFailedAtDesc(merchantId);
+        long deadLetterEvents = deadLetterRepository.countByMerchantId(merchantId);
         BrokerStatus broker = inspectBroker();
         MessageListenerContainer container = registry.getListenerContainer(LISTENER_ID);
         boolean listenerRunning = container != null && container.isRunning();
@@ -76,6 +95,12 @@ public class ListenerStatusService {
                 broker.lag(),
                 events.isEmpty() ? null : events.getFirst().getConsumedAt(),
                 events.stream().map(this::toResponse).toList(),
+                new DeadLetterStatus(
+                        dltTopic,
+                        maxRetries,
+                        retryIntervalMs,
+                        deadLetterEvents,
+                        deadLetters.stream().map(this::toDeadLetterResponse).toList()),
                 hint(status, broker.lag()));
     }
 
@@ -131,6 +156,17 @@ public class ListenerStatusService {
                 event.getOffset(),
                 event.getOccurredAt(),
                 event.getConsumedAt());
+    }
+
+    private DeadLetterEventResponse toDeadLetterResponse(DeadLetterPaymentEvent event) {
+        return new DeadLetterEventResponse(
+                event.getEventId() == null ? null : event.getEventId().toString(),
+                event.getOriginalTopic(),
+                event.getOriginalPartition(),
+                event.getOriginalOffset(),
+                event.getExceptionClass(),
+                event.getExceptionMessage(),
+                event.getFailedAt());
     }
 
     private String hint(String status, long lag) {

@@ -14,6 +14,7 @@ public record ListenerStatusResponse(
         long consumerGroupLag,
         Instant lastConsumedAt,
         List<ConsumedEventResponse> recentEvents,
+        DeadLetterStatus deadLetter,
         String hint) {
 
     public record ConsumedEventResponse(
@@ -25,5 +26,23 @@ public record ListenerStatusResponse(
             long offset,
             Instant occurredAt,
             Instant consumedAt) {
+    }
+
+    public record DeadLetterStatus(
+            String topic,
+            int maxRetries,
+            long retryIntervalMs,
+            long events,
+            List<DeadLetterEventResponse> recentEvents) {
+    }
+
+    public record DeadLetterEventResponse(
+            String eventId,
+            String originalTopic,
+            int originalPartition,
+            long originalOffset,
+            String exceptionClass,
+            String exceptionMessage,
+            Instant failedAt) {
     }
 }

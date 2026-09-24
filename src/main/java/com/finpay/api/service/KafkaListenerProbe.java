@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import com.finpay.api.dto.InfrastructureStatusResponse.KafkaConsumerStatus;
+import com.finpay.api.dto.InfrastructureStatusResponse.KafkaDeadLetterStatus;
 
 import tools.jackson.databind.ObjectMapper;
 
@@ -80,6 +81,12 @@ public class KafkaListenerProbe {
                 -1,
                 null,
                 List.of(),
+                new KafkaDeadLetterStatus(
+                        "finpay.payment-events.v1.DLT",
+                        3,
+                        2000,
+                        0,
+                        List.of()),
                 hint);
     }
 }

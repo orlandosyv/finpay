@@ -26,6 +26,7 @@ The project focuses on API design, multi-tenant architecture, authentication and
 - Persist Kafka attempts, retries, partition, offset, and failures independently from webhook delivery
 - Consume Kafka events in an independently deployable Spring Boot audit listener
 - Track consumer-group lag, committed offsets, deduplicated events, and an independent audit projection
+- Retry poison messages three times and isolate exhausted records in a Dead Letter Topic
 - Explore live topology, publication evidence, outage behavior, and architecture concepts in an educational Infrastructure Lab
 - Approve or decline pending payments
 - Refund approved payments
@@ -96,6 +97,8 @@ flowchart LR
     Publisher -->|Key: payment ID| Kafka[(finpay.payment-events.v1)]
     Kafka -->|Consumer group finpay-audit-v1| Listener[finpay-kafka-listener]
     Listener --> AuditDB[(finpay_listener_db)]
+    Listener -. After retries .-> DLT[(finpay.payment-events.v1.DLT)]
+    DLT --> FailureAudit[Dead-letter audit]
 ```
 
 Angular provides the user-facing workflow, but the API remains the authoritative security boundary. Every protected request is validated independently, and the authenticated JWT determines the current merchant and role. SQL Server stores business state and the durable outbox, while Redis manages refresh-token sessions and access-token revocation. Independent workers deliver each outbox event to merchant webhooks and Kafka. The sibling `finpay-kafka-listener` application consumes the topic into its own audit database without participating in the payment request.
@@ -194,7 +197,7 @@ The frontend container uses a multi-stage build. Node compiles the Angular appli
 
 The `sqlserver-init` container is a one-time initialization service. Seeing it with an `Exited (0)` status is expected and means that database creation completed successfully.
 
-The listener uses the consumer group `finpay-audit-v1` with three concurrent consumers, matching the three topic partitions. It commits offsets only after its database transaction succeeds and deduplicates at-least-once deliveries by event ID.
+The listener uses the consumer group `finpay-audit-v1` with three concurrent consumers, matching the three topic partitions. It commits offsets only after its database transaction succeeds and deduplicates at-least-once deliveries by event ID. Records that still fail after three retries are published to `finpay.payment-events.v1.DLT`, allowing the original partition to continue.
 
 ### Stop the application
 
@@ -391,6 +394,8 @@ After Kafka restarts, the publisher retries the durable event and the lab change
 
 `finpay-kafka-listener` is a sibling Spring Boot application in the same repository and a separate Docker process. It owns `finpay_listener_db`, consumes `finpay.payment-events.v1`, and stores a queryable audit projection containing the event ID, merchant, payment, lifecycle state, partition, offset, event time, and consumption time.
 
+The listener waits two seconds between processing retries. After three failed retries, Spring Kafka publishes the original record and failure metadata to `finpay.payment-events.v1.DLT`. A dedicated DLT consumer stores the original topic, partition, offset, exception, and failure time in `dead_letter_payment_events`. This prevents one poison message from blocking later records indefinitely while preserving evidence for investigation.
+
 Infrastructure Lab compares producer-side publications with consumer-side records and displays the consumer-group lag. To demonstrate decoupling:
 
 ```powershell
@@ -404,6 +409,20 @@ docker compose start kafka-listener
 ```
 
 The listener resumes from the group's committed offsets, stores the pending audit events, and returns the lag to zero. This recovery does not require replaying an HTTP request or changing the payment API.
+
+To demonstrate poison-message isolation, replace the merchant ID with the authenticated merchant shown in the Merchant Console and publish an intentionally invalid record:
+
+```powershell
+$merchantId = Read-Host "Merchant ID shown in Merchant Console"
+$eventId = [guid]::NewGuid().ToString()
+"finpay-event-id:$eventId,finpay-merchant-id:$merchantId`t{not-valid-json}" |
+  docker compose exec -T kafka /opt/kafka/bin/kafka-console-producer.sh `
+    --bootstrap-server localhost:19092 `
+    --topic finpay.payment-events.v1 `
+    --reader-property parse.headers=true
+```
+
+After approximately six seconds, Infrastructure Lab shows the failed event under **Dead Letter Topic**. The normal consumer lag returns to zero because the poison record no longer blocks its partition.
 
 Local development permits HTTP and private addresses so a receiver can run on the same machine. Production should set `FINPAY_WEBHOOK_REQUIRE_HTTPS=true`, `FINPAY_WEBHOOK_ALLOW_PRIVATE_ADDRESSES=false`, and use a dedicated `FINPAY_WEBHOOK_ENCRYPTION_KEY`.
 
@@ -547,6 +566,7 @@ The test suite includes:
 - Kafka producer key, headers, payload, persisted status, partition, and offset tests
 - Real outbox-to-Kafka publication tests with Testcontainers
 - Independent listener mapping and duplicate-event tests
+- Dead-letter metadata, Kafka position, and duplicate-DLT-record tests
 - Flyway and SQL Server integration tests with Testcontainers
 - OpenAPI and Swagger endpoint checks
 
@@ -685,6 +705,7 @@ finpay-kafka-listener
 - **Independent consumer:** payment processing never calls the audit listener directly; Kafka is the only business-event connection between the applications.
 - **Consumer-owned projection:** the listener stores events in `finpay_listener_db`, preventing its read model and migrations from coupling to the payment database.
 - **Consumer groups and lag:** committed offsets let the listener resume after downtime, while lag makes pending work observable in Infrastructure Lab.
+- **Dead Letter Topic:** poison messages receive three bounded retries before isolation, so the normal consumer can advance while operators retain the failed payload and exception metadata for diagnosis.
 - **Signed delivery:** webhook secrets are encrypted at rest and used to authenticate payloads with HMAC-SHA256.
 - **At-least-once retries:** failed deliveries are persisted and retried with backoff; consumers deduplicate by event ID.
 - **Multi-stage Docker build:** Maven compiles the application in a build image, while the final image contains only the Java runtime and packaged application.

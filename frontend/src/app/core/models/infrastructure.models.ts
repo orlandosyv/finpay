@@ -25,7 +25,26 @@ export interface KafkaConsumerStatus {
   consumerGroupLag: number;
   lastConsumedAt: string | null;
   recentEvents: KafkaConsumedEvent[];
+  deadLetter: KafkaDeadLetterStatus;
   hint: string;
+}
+
+export interface KafkaDeadLetterStatus {
+  topic: string;
+  maxRetries: number;
+  retryIntervalMs: number;
+  events: number;
+  recentEvents: KafkaDeadLetterEvent[];
+}
+
+export interface KafkaDeadLetterEvent {
+  eventId: string | null;
+  originalTopic: string;
+  originalPartition: number;
+  originalOffset: number;
+  exceptionClass: string | null;
+  exceptionMessage: string | null;
+  failedAt: string;
 }
 
 export interface KafkaConsumedEvent {

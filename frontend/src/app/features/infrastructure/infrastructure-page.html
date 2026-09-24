@@ -90,6 +90,11 @@
             ><strong>{{ infrastructure.kafka.consumer.consumerGroupLag }}</strong
             ><span>Still waiting to be consumed</span>
           </article>
+          <article>
+            <small>Dead letters</small
+            ><strong>{{ infrastructure.kafka.consumer.deadLetter.events }}</strong
+            ><span>Moved aside after retries</span>
+          </article>
         </section>
 
         <section class="systems" aria-label="Live infrastructure services">
@@ -193,6 +198,23 @@
                         : 'No events yet'
                     }}
                   </dd>
+                </div>
+                <div>
+                  <dt>Dead letter topic</dt>
+                  <dd>
+                    <code>{{ infrastructure.kafka.consumer.deadLetter.topic }}</code>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Retry policy</dt>
+                  <dd>
+                    {{ infrastructure.kafka.consumer.deadLetter.maxRetries }} retries ·
+                    {{ infrastructure.kafka.consumer.deadLetter.retryIntervalMs / 1000 }}s
+                  </dd>
+                </div>
+                <div>
+                  <dt>Dead-letter events</dt>
+                  <dd>{{ infrastructure.kafka.consumer.deadLetter.events }}</dd>
                 </div>
               </dl>
               <p class="hint">
@@ -366,6 +388,58 @@
             <p class="empty-state">No event has been stored by the independent listener yet.</p>
           }
         </section>
+
+        <section aria-labelledby="dead-letter-events-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Messages that could not be processed</p>
+              <h2 id="dead-letter-events-title">Dead Letter Topic</h2>
+            </div>
+            <span class="legend">
+              Retried {{ infrastructure.kafka.consumer.deadLetter.maxRetries }} times before being
+              isolated
+            </span>
+          </div>
+          @if (infrastructure.kafka.consumer.deadLetter.recentEvents.length) {
+            <div class="table-wrap dead-letter-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Event</th>
+                    <th>Original position</th>
+                    <th>Error</th>
+                    <th>Failed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (
+                    event of infrastructure.kafka.consumer.deadLetter.recentEvents;
+                    track event.originalTopic + event.originalPartition + event.originalOffset
+                  ) {
+                    <tr>
+                      <td>
+                        <strong>{{ event.eventId || 'Invalid event ID' }}</strong>
+                        <small>{{ infrastructure.kafka.consumer.deadLetter.topic }}</small>
+                      </td>
+                      <td>P{{ event.originalPartition }} · O{{ event.originalOffset }}</td>
+                      <td>
+                        <strong>{{ event.exceptionMessage || 'Unknown processing error' }}</strong>
+                        @if (event.exceptionClass) {
+                          <small>{{ event.exceptionClass }}</small>
+                        }
+                      </td>
+                      <td>{{ event.failedAt | date: 'mediumTime' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else {
+            <p class="empty-state success-empty">
+              No poison messages. Every Kafka record was processed successfully.
+            </p>
+          }
+        </section>
       </div>
     } @else {
       <div id="learn-panel" class="view-panel" role="tabpanel" aria-labelledby="learn-tab">
@@ -501,12 +575,16 @@
               <strong>At-least-once</strong>
               <p>Protects against lost events, so consumers deduplicate by event ID.</p>
             </article>
+            <article>
+              <strong>Dead Letter Topic</strong>
+              <p>Isolates a poison message after retries so later records can keep moving.</p>
+            </article>
           </div>
         </section>
 
         <section aria-labelledby="experiments-title">
           <p class="eyebrow">Try it yourself</p>
-          <h2 id="experiments-title">Two controlled experiments</h2>
+          <h2 id="experiments-title">Three controlled experiments</h2>
           <div class="experiment-grid">
             <article>
               <span class="experiment-number">A</span>
@@ -528,6 +606,20 @@
                 <p>
                   Kafka can still publish and consume, while the webhook dashboard records a failed
                   HTTP delivery and retry.
+                </p>
+              </div>
+            </article>
+            <article>
+              <span class="experiment-number">C</span>
+              <div>
+                <h3>Send an invalid Kafka record</h3>
+                <p>
+                  The listener retries it three times, moves it to the Dead Letter Topic and then
+                  continues with the next valid record.
+                </p>
+                <p>
+                  Dead letters increases while normal Consumer lag can return to zero, proving the
+                  poison message no longer blocks its partition.
                 </p>
               </div>
             </article>

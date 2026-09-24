@@ -12,6 +12,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import com.finpay.api.context.CurrentMerchantProvider;
 import com.finpay.api.dto.InfrastructureStatusResponse;
 import com.finpay.api.dto.InfrastructureStatusResponse.KafkaConsumerStatus;
+import com.finpay.api.dto.InfrastructureStatusResponse.KafkaDeadLetterStatus;
 import com.finpay.api.model.KafkaPublicationStatus;
 import com.finpay.api.repository.KafkaPublicationRepository;
 import com.finpay.api.repository.WebhookEndpointRepository;
@@ -104,6 +105,12 @@ class InfrastructureStatusServiceTest {
                 0,
                 java.time.Instant.now(),
                 java.util.List.of(),
+                new KafkaDeadLetterStatus(
+                        "finpay.payment-events.v1.DLT",
+                        3,
+                        2000,
+                        0,
+                        java.util.List.of()),
                 "The listener is caught up.");
     }
 }

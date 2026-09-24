@@ -131,6 +131,11 @@ services:
       FINPAY_KAFKA_TOPIC: finpay.payment-events.v1
       FINPAY_KAFKA_CONSUMER_GROUP: finpay-audit-v1
       FINPAY_KAFKA_CONCURRENCY: 3
+      FINPAY_KAFKA_DLT_TOPIC: finpay.payment-events.v1.DLT
+      FINPAY_KAFKA_DLT_CONSUMER_GROUP: finpay-audit-dlt-v1
+      FINPAY_KAFKA_DLT_CONCURRENCY: 1
+      FINPAY_KAFKA_MAX_RETRIES: 3
+      FINPAY_KAFKA_RETRY_INTERVAL_MS: 2000
       SPRING_DATASOURCE_URL: jdbc:sqlserver://sqlserver:1433;databaseName=finpay_listener_db;encrypt=true;trustServerCertificate=true
     ports:
       - "${FINPAY_LISTENER_PORT:-8081}:8081"

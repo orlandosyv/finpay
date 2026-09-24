@@ -36,7 +36,26 @@ public record InfrastructureStatusResponse(
             long consumerGroupLag,
             Instant lastConsumedAt,
             List<KafkaConsumedEvent> recentEvents,
+            KafkaDeadLetterStatus deadLetter,
             String hint) {
+    }
+
+    public record KafkaDeadLetterStatus(
+            String topic,
+            int maxRetries,
+            long retryIntervalMs,
+            long events,
+            List<KafkaDeadLetterEvent> recentEvents) {
+    }
+
+    public record KafkaDeadLetterEvent(
+            String eventId,
+            String originalTopic,
+            int originalPartition,
+            long originalOffset,
+            String exceptionClass,
+            String exceptionMessage,
+            Instant failedAt) {
     }
 
     public record KafkaConsumedEvent(
